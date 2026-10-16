@@ -1,0 +1,313 @@
+---
+title: "Supuestos del modelo"
+author: "Wilson Sandoval"
+date: "20/11/2020"
+output: slidy_presentation
+---
+
+
+
+## Residuales
+ **Residual clásico**
+ 
+El residual clásico es la diferencia entre el valor real de la variable dependiente y su estimación por medio del modelo de
+
+$$\hat{e_i}=y_i-\hat{y_i}$$
+Sin embargo, estos residuales no tienen varianza constante, por lo que no serían los residuales apropiados para evaluar los supuestos de homocedasticidad y normalidad, ya que:
+
+$$V(\hat{\boldsymbol{e}})=\sigma^2(I-H)$$
+
+
+con $H=X(X^tX)^{-1}X^t$
+
+
+#### Residuales estandarizados
+
+
+Como se su nombre lo dice:
+
+$$r_i=\frac{\hat{e_i}}{\sqrt{(1-h_{ii})CME}}$$
+
+
+#### esiduales studentizados
+
+Los residuales estudentizados permiten encontrar datos influyentes, se definen como:
+
+$$r_i^*=\frac{\hat{e_i}}{\sqrt{(1-h_{ii})\hat{\sigma_{(i)}^2}}}$$
+
+
+donde $\hat{\sigma_{(i)}^2}$ es el CME de la regresión obtenida sin el i-ésimo elemento.
+
+```{r,message=FALSE}
+library(tidyverse)
+library(broom)
+library(datarium)
+```
+
+
+Cargar los datos
+```{r}
+data("marketing", package = "datarium")
+# Inspect the data
+sample_n(marketing, 3)
+```
+
+
+
+
+#### Construyendo un modelo de regresión
+Creamos un modelo para predecir las ventas sobre la base del presupuesto publicitario gastado en los medios de YouTube.
+
+```{r}
+model <- lm(sales ~ youtube, data = marketing)
+summary(model)
+```
+
+La ecuación de regresión es:,  y = 8.43 + 0.04x es decir $sales = 8.43 + 0.047*youtube$.
+
+Antes, al describir los supuestos de regresión y los diagnósticos de 
+regresión, comenzamos por explicar dos conceptos clave en el análisis de regresión: 
+valores ajustados y errores residuales. Estos son importantes para comprender 
+los gráficos de diagnóstico que se presentan a continuación.
+
+
+
+#### Valores ajustados y residuales
+Los valores ajustados (o predichos ) son los valores y que esperaría para los valores x dados de acuerdo con el modelo de regresión construido (o visualmente, la línea de regresión recta que mejor se ajusta).
+
+En nuestro ejemplo, para un presupuesto de publicidad youtube dado, el valor de venta de módulos (valor de referencia) sería, 
+
+$$*sales = 8.44 + 0.0048 youtube*$$
+
+
+En R, puede aumentar fácilmente sus datos para agregar valores ajustados y residuales utilizando la función *augment()*. Llamemos a la salida model.diag.metricsporque contiene varias métricas útiles para el diagnóstico de regresión. Describiremos el tema más adelante.
+
+```{r}
+model.diag.metrics <- augment(model)
+head(model.diag.metrics)
+```
+
+
+Entre las columnas de la tabla, se encuentran:
+
+- **youtube:** el presupuesto de publicidad de youtube invertido
+- **sales:** los valores de venta observados
+- **.fitted:** los valores de venta ajustados
+- **.resid:** los errores residuales
+
+El siguiente código R traza el error residual (en color rojo) entre los valores observados y la línea de regresión ajustada. Cada segmento rojo vertical representa el error residual entre un valor de venta observado y el valor predicho correspondiente (es decir, ajustado).
+
+```{r}
+ggplot(model.diag.metrics, aes(youtube, sales)) +
+  geom_point() +
+  stat_smooth(method = lm, se = FALSE) +
+  geom_segment(aes(xend = youtube, yend = .fitted), color = "red", size = 0.3)
+```
+
+## Supuestos de regresión
+La regresión lineal hace varias suposiciones sobre los datos, como:
+
+- **Linealidad de los datos** . Se supone que la relación entre el predictor (x) y el resultado (y) es lineal.
+- **Normalidad de los residuos** . Se supone que los errores residuales se distribuyen normalmente.
+- **Homogeneidad de la varianza de los residuos** . Se supone que los residuos tienen una varianza constante ( homocedasticidad )
+- **Independencia de los términos de error de los residuos** .
+
+Debe verificar si estas suposiciones son ciertas o no. Los problemas potenciales incluyen:
+
+1. No linealidad del resultado - relaciones predictoras
+2. Heteroscedasticidad : Varianza no constante de términos de error.
+3. Presencia de valores influyentes en los datos que pueden ser:
+Valores atípicos: valores extremos en la variable de resultado (y)
+Puntos de alto apalancamiento: valores extremos en la variable de predictores (x)
+Todas estas suposiciones y problemas potenciales pueden verificarse produciendo algunos gráficos de diagnóstico que visualicen los errores residuales.
+
+
+## Gráficas de diagnóstico
+Los gráficos de diagnóstico de regresión se pueden crear usando la función base R **plot()** o la **autoplot()** función (paquete ggfortify), que crea gráficos basados en ggplot2.
+
+```{r}
+par(mfrow = c(2, 2))
+plot(model)
+```
+
+```{r, message=FALSE}
+library(ggfortify)
+autoplot(model)
+```
+
+Los gráficos de diagnóstico muestran residuos de cuatro formas diferentes:
+
+- **Residuals vs Fitted.** . Se usa para verificar los supuestos de relación lineal. Una línea horizontal, sin patrones distintos es una indicación de una relación lineal, lo que es bueno.
+
+- **QQ normal** . Se utiliza para examinar si los residuos se distribuyen normalmente. Es bueno si los puntos residuales siguen la línea recta discontinua.
+
+- **Scale-Location (or Spread-Location)**. Se utiliza para comprobar la homogeneidad de la varianza de los residuos (homocedasticidad). La línea horizontal con puntos igualmente extendidos es una buena indicación de homocedasticidad. Este no es el caso en nuestro ejemplo, donde tenemos un problema de heterocedasticidad.
+
+- **RResiduals vs Leverage** . Se utiliza para identificar casos influyentes, es decir, valores extremos que pueden influir en los resultados de la regresión cuando se incluyen o excluyen del análisis. Esta gráfica se describirá con más detalle en las siguientes secciones.
+
+
+
+Los cuatro gráficos muestran los 3 puntos de datos más extremos etiquetados con los números de fila de los datos en el conjunto de datos. Pueden ser potencialmente problemáticos. Es posible que desee examinarlos de cerca individualmente para verificar si hay algo especial para el tema o si podrían ser simplemente errores de entrada de datos. Hablaremos de esto en las siguientes secciones.
+
+
+### Linealidad de los datos
+La suposición de linealidad se puede verificar inspeccionando el gráfico de Residuos vs Ajustado (primer gráfico):
+
+```{r}
+autoplot(model, 1)
+```
+
+Idealmente, la gráfica residual no mostrará un patrón ajustado. Es decir, la línea azul debe ser aproximadamente horizontal en cero. La presencia de un patrón puede indicar un problema con algún aspecto del modelo lineal.
+
+En el ejemplo, no hay patrón en el gráfico de residuos. Esto sugiere que podemos asumir una relación lineal entre los predictores y las variables de resultado.
+
+Si el gráfico de residuos indica una relación no lineal en los datos, entonces un enfoque simple es usar transformaciones no lineales de los predictores, como $\log (x)$, $\sqrt(x)$ y $x^2$, en el Modelo de regresión.
+
+
+### Homogeneidad de varianza
+Esta suposición se puede verificar examinando la gráfica de *scale-Location* , también conocida como gráfica de ubicación de dispersión .
+
+
+```{r}
+autoplot(model, 3)
+```
+
+Este gráfico muestra si los residuos se distribuyen por igual a lo largo de los rangos de predictores. *Es bueno si ve una línea horizontal con puntos igualmente esparcidos*. En el ejemplo, este no es el caso.
+
+Puede observarse que la variabilidad (varianzas) de los puntos residuales aumenta con el valor de la variable de resultado ajustada, lo que sugiere varianzas no constantes en los errores residuales (o heterocedasticidad ).
+
+
+```{r, message=FALSE}
+library(lmtest)
+bptest(model)
+
+```
+
+
+
+
+Una posible solución para reducir el problema de heterocedasticidad es utilizar una transformación de raíz cuadrada o logarítmica de la variable de resultado (y).
+
+
+por ejemplo:
+
+```{r}
+model2 <- lm(log(sales) ~ youtube, data = marketing)
+autoplot(model2, 3)
+```
+
+### Normalidad de los residuos
+L
+a gráfica QQ de residuos se puede utilizar para verificar visualmente el supuesto de normalidad. La gráfica de probabilidad normal de residuos debe seguir aproximadamente una línea recta.
+
+En nuestro ejemplo, todos los puntos caen aproximadamente a lo largo de esta línea de referencia, por lo que podemos asumir la normalidad.
+
+
+```{r}
+autoplot(model, 2)
+```
+#### Prueba de normalidad
+
+$H_0:$ Los residuales tienen distribución normal
+
+$H_1:$ Los residuales no tienen distribución normal
+
+```{r}
+shapiro.test(rstandard(model))
+```
+
+
+
+### Outliers and high levarage points
+
+
+- **Outliers:** Un valor atípico es un punto que tiene un valor de variable de resultado extremo. La presencia de valores atípicos puede afectar la interpretación del modelo, porque aumenta el RSE.
+
+Los valores atípicos se pueden identificar examinando el residuo estandarizado (o residuo estudentizado ), que es el residuo dividido por su error estándar estimado. Los residuos estandarizados se pueden interpretar como el número de errores estándar fuera de la línea de regresión.
+
+Las observaciones cuyos residuos estandarizados son superiores a 3 en valor absoluto son posibles valores atípicos (James et al. 2014) .
+
+- **high levarage points :**
+
+Un punto de datos tiene un alto apalancamiento, si tiene valores extremos de predictor x. Esto se puede detectar examinando la estadística de apalancamiento o el valor del sombrero . Un valor de esta estadística anterior 2(p + 1)/nindica una observación con alto apalancamiento (P. Bruce y Bruce 2017) ; donde, pes el número de predictores y nes el número de observaciones.
+
+Los valores atípicos y los puntos de alto apalancamiento se pueden identificar inspeccionando el gráfico de Residuos vs Apalancamiento :
+
+```{r}
+autoplot(model, 5)
+```
+
+La gráfica de arriba resalta los 3 puntos más extremos (# 26, # 36 y # 179), con un residuo estandarizado por debajo de -2. Sin embargo, no hay valores atípicos que superen las 3 desviaciones estándar, lo que es bueno.
+
+Además, no hay un alto punto de apalancamiento en los datos. Es decir, todos los puntos de datos tienen una estadística de apalancamiento por debajo de 2(p + 1)/n = 4/200 = 0.02.
+
+
+Valores influyentes
+Un valor influyente es un valor cuya inclusión o exclusión puede alterar los resultados del análisis de regresión. Tal valor está asociado con un gran residuo.
+
+No todos los valores atípicos (o puntos de datos extremos) influyen en el análisis de regresión lineal.
+
+Los estadísticos han desarrollado una métrica llamada distancia de Cook para determinar la influencia de un valor. Esta métrica define la influencia como una combinación de apalancamiento y tamaño residual.
+
+Una regla general es que una observación tiene una gran influencia si la distancia de Cook excede  $\frac{4}{n-p-1}$   (P. Bruce y Bruce 2017) , donde $n$ es el número de observaciones y $p$ el número de variables predictoras.
+
+La gráfica de Residuales vs Apalancamiento puede ayudarnos a encontrar observaciones influyentes, si las hay.
+
+En este gráfico, los valores periféricos se encuentran generalmente en la esquina superior derecha o en la esquina inferior derecha. Esos puntos son los lugares donde los puntos de datos pueden influir en una línea de regresión.
+
+Los siguientes gráficos ilustran la distancia de Cook y el apalancamiento de nuestro modelo:
+
+
+```{r}
+# Cook's distance
+autoplot(model, 4)
+# Residuals vs Leverage
+autoplot(model, 5)
+
+```
+
+De forma predeterminada, los 3 valores más extremos superiores están etiquetados en la gráfica de distancia de Cook. Si desea etiquetar los 5 valores extremos superiores, especifique la opción de la id.nsiguiente manera:
+
+```{r}
+plot(model, 4, id.n = 5)
+```
+
+
+Si desea ver estas 3 observaciones principales con la distancia de Cook más alta en caso de que desee evaluarlas más, escriba este código R:
+
+```{r}
+model.diag.metrics %>%
+  top_n(3, wt = .cooksd)
+
+```
+
+Cuando los puntos de datos tienen puntuaciones altas de distancia de Cook y están en la parte superior o inferior derecha de la gráfica de apalancamiento, tienen apalancamiento, lo que significa que influyen en los resultados de la regresión. Los resultados de la regresión se alterarán si excluimos esos casos.
+
+En el ejemplo, los datos no presentan ningún punto influyente. Las líneas de distancia de Cook (una línea discontinua roja) no se muestran en la gráfica de Residuales vs Apalancamiento porque todos los puntos están dentro de las líneas de distancia de Cook.
+
+
+Muestremos ahora otro ejemplo, donde los datos contienen dos valores extremos con influencia potencial en los resultados de la regresión:
+
+
+```{r}
+df2 <- data.frame(
+  x = c(marketing$youtube, 500, 600),
+  y = c(marketing$sales, 80, 100)
+)
+model2 <- lm(y ~ x, df2)
+```
+
+
+Cree la gráfica de Residuales vs Apalancamiento de los dos modelos:
+
+```{r}
+# Cook's distance
+plot(model2, 4)
+# Residuals vs Leverage
+plot(model2, 5)
+
+```
+
+En la gráfica de Residuales vs Apalancamiento, busque un punto de datos fuera de una línea discontinua, la distancia de Cook. Cuando los puntos están fuera de la distancia de Cook, esto significa que tienen puntuaciones altas de distancia de Cook. En este caso, los valores influyen en los resultados de la regresión. Los resultados de la regresión se alterarán si excluimos esos casos.
+
+En el ejemplo  anterior, dos puntos de datos están mucho más allá de las líneas de distancia de Cook. Los otros residuos aparecen agrupados a la izquierda. La trama identificó la observación influyente como # 201 y # 202. Si excluye estos puntos del análisis, el coeficiente de pendiente cambia de 0.06 a 0.04 y R2 de 0.5 a 0.6. ¡Impacto bastante grande!

@@ -1,0 +1,10 @@
+name: Publish Document
+title:
+username:
+account: rpubs
+server: rpubs.com
+hostUrl: rpubs.com
+appId: https://api.rpubs.com/api/v1/document/1460228/8f6e7e7757ee498d89f35a406822cf61
+bundleId: https://api.rpubs.com/api/v1/document/1460228/8f6e7e7757ee498d89f35a406822cf61
+url: http://rpubs.com/wilsonsr/1460228
+version: 1

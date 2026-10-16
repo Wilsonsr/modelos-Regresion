@@ -1,0 +1,1892 @@
+---
+title: "Regresión Lineal Múltiple"
+subtitle: "De la recta al hiperplano: modelo, diagnóstico y decisión"
+author: "Wilson Sandoval R."
+date: "`r format(Sys.Date(), '%d/%m/%Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: false
+    theme: flatly
+    df_print: paged
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, message = FALSE, warning = FALSE,
+  fig.align = "center", fig.width = 7, fig.height = 4.5
+)
+options(digits = 5, scipen = 999)
+```
+
+> **Cómo usar este documento.** Está pensado para ejecutarse de principio a fin
+> (*Knit*). El archivo `trees.csv` debe estar en la **misma carpeta** que este
+> `.Rmd`. No hay rutas absolutas ni instalación de paquetes dentro del documento.
+
+## Paquetes
+
+Solo tres paquetes son **imprescindibles** (`ggplot2`, `dplyr`, `broom`). Los
+demás (`car`, `lmtest`, `GGally`, `ggfortify`) se usan si están instalados; si
+no lo están, el documento sigue funcionando porque más adelante programamos las
+alternativas *a mano* —lo cual, además, es pedagógicamente útil: muestra qué
+está calculando el paquete.
+
+```{r paquetes}
+library(ggplot2)
+library(dplyr)
+library(broom)
+
+hay <- function(p) requireNamespace(p, quietly = TRUE)
+opcionales <- c("car", "lmtest", "GGally", "ggfortify")
+data.frame(paquete = opcionales, instalado = sapply(opcionales, hay))
+```
+
+---
+
+# PARTE 0. Nivelación: lo que debemos saber antes de la regresión múltiple
+
+Antes de poner dos predictoras en el mismo modelo conviene tener aceitado el
+vocabulario de la regresión simple. Usamos un ejemplo pequeño y conocido.
+
+## El vocabulario mínimo
+
+| Concepto | Qué es |
+|---|---|
+| **Variable respuesta** ($Y$) | Lo que queremos explicar o predecir. Es aleatoria. |
+| **Variable predictora** ($X$) | Lo que usamos para explicar. En el modelo clásico se trata como fija y medida sin error. |
+| **Correlación** ($r$) | Mide la fuerza y el sentido de la asociación **lineal** entre dos variables. Va de $-1$ a $1$ y **no tiene unidades**. |
+| **Asociación vs. causalidad** | Que $X$ prediga bien a $Y$ no significa que la cause. La causalidad viene del diseño del estudio, no del `lm()`. |
+| **Recta de regresión** | $\hat y = \hat\beta_0 + \hat\beta_1 x$: el valor **promedio** de $Y$ estimado para cada $x$. |
+| **Valor observado** ($y_i$) | El dato real. |
+| **Valor estimado / ajustado** ($\hat y_i$) | Lo que el modelo predice para ese individuo. |
+| **Residual** ($e_i = y_i - \hat y_i$) | Lo que el modelo **no** logró explicar en esa observación. |
+| **Mínimos cuadrados** | El criterio para elegir $\hat\beta$: minimizar $\sum e_i^2$. |
+| **$R^2$** | Proporción de la variabilidad de $Y$ que el modelo explica. |
+| **Error estándar residual** ($\hat\sigma$) | En las unidades de $Y$: cuánto se desvía típicamente una observación de la recta. |
+| **Prueba $t$** | ¿Este coeficiente es distinguible de cero, dado el resto del modelo? |
+| **Intervalo de confianza** | Rango de valores del **parámetro** compatibles con los datos. |
+| **Predicción** | Un valor de $Y$ para una combinación nueva de predictoras. |
+
+## Un ejemplo de regresión lineal simple: ruido e hipertensión
+
+Datos representativos de los reportados en el *Journal of Sound and Vibration*
+(Vol. 151, 1991, pp. 383–394): $x$ es el nivel de presión acústica (decibeles) y
+$y$ el aumento de la presión arterial (mm Hg).
+
+```{r nivelacion-datos}
+ruido <- data.frame(
+  db = c(60, 63, 65, 70, 70, 70, 80, 90, 80, 80, 85, 89, 90, 90, 90, 90, 94, 100, 100, 100),
+  pa = c( 1,  0,  1,  2,  5,  1,  4,  6,  2,  3,  5,  4,  6,  8,  4,  5,  7,   9,   7,   6)
+)
+head(ruido)
+```
+
+**Pregunta → Datos.** ¿A mayor exposición al ruido, mayor aumento de presión
+arterial?
+
+```{r nivelacion-dispersion}
+ggplot(ruido, aes(db, pa)) +
+  geom_point(size = 2.4, colour = "steelblue") +
+  geom_smooth(method = "lm", se = FALSE, colour = "firebrick") +
+  labs(title = "Presión arterial vs. nivel de ruido",
+       x = "Nivel de presión acústica (dB)", y = "Aumento de presión arterial (mm Hg)")
+```
+
+```{r nivelacion-cor}
+cor(ruido$db, ruido$pa)
+```
+
+Una correlación de $\approx 0.865$: asociación lineal positiva y fuerte. **Fuerte
+no es lo mismo que causal**: este es un estudio observacional y la edad, el
+tiempo de exposición o la ocupación podrían estar detrás de ambas variables.
+
+**Modelo.**
+
+```{r nivelacion-modelo}
+m_ruido <- lm(pa ~ db, data = ruido)
+summary(m_ruido)
+```
+
+**Resultados → lectura.** La recta estimada es
+
+$$\widehat{pa} = -10.132 + 0.174\,\cdot\,db$$
+
+* **Intercepto** $\hat\beta_0 = -10.132$: sería el aumento promedio de presión
+  para $db = 0$. Aquí **no tiene interpretación práctica**: no hay mediciones
+  cerca de 0 dB (el rango observado es 60–100) y un aumento negativo de presión
+  no significa nada en este contexto. El intercepto ancla la recta; no siempre
+  es un resultado sustantivo.
+* **Pendiente** $\hat\beta_1 = 0.174$: por cada decibel adicional, el aumento
+  promedio de la presión arterial **crece 0.174 mm Hg**. Equivalentemente,
+  10 dB más se asocian a $\approx 1.7$ mm Hg más.
+* **Error estándar residual** $\hat\sigma = 1.318$ mm Hg: la dispersión típica
+  de los datos alrededor de la recta.
+* $R^2 = 0.7483$: el nivel de ruido explica el **74.8 %** de la variabilidad
+  observada en el aumento de presión. El 25 % restante queda fuera del modelo.
+
+> ⚠️ **Corrección respecto al material anterior.** En las versiones previas de
+> esta clase el intercepto de este ejemplo aparecía interpretado como
+> *"34.5538 unidades"*. Ese número pertenece al ejemplo de `Boston`
+> (`medv ~ lstat`) y se copió por error: el intercepto de este modelo es
+> $-10.132$. Es un buen recordatorio de que **toda interpretación debe leerse
+> de la salida del modelo que se acaba de ajustar**.
+
+**Intervalo de confianza y prueba $t$.**
+
+```{r nivelacion-ic}
+confint(m_ruido, level = 0.95)
+```
+
+La prueba $t$ de la pendiente contrasta $H_0:\beta_1 = 0$ (el ruido no aporta
+información lineal sobre la presión) contra $H_1:\beta_1\neq 0$. Con
+$p < 0.001$ rechazamos $H_0$: **los datos son muy poco compatibles con la idea
+de que no hay relación lineal**. El IC del 95 % para $\beta_1$ no contiene el
+cero, lo cual dice lo mismo, pero además informa de la **magnitud** plausible
+del efecto —que es la información que realmente sirve para decidir.
+
+## El puente hacia la regresión múltiple
+
+Todo lo anterior vive en el modelo
+
+$$Y = \beta_0 + \beta_1 X + \epsilon$$
+
+La regresión múltiple simplemente admite varias predictoras a la vez:
+
+$$Y = \beta_0 + \beta_1X_1 + \beta_2X_2 + \cdots + \beta_kX_k + \epsilon$$
+
+Los conceptos (residual, mínimos cuadrados, $R^2$, prueba $t$, IC, predicción)
+**sobreviven intactos**. Lo que cambia —y es el corazón de esta clase— es la
+**interpretación de cada coeficiente**.
+
+---
+
+# 1. Motivación: cuando una sola variable no alcanza
+
+> **Pregunta orientadora:** ¿podemos explicar y predecir el volumen de madera de
+> un árbol usando **simultáneamente** su diámetro y su altura?
+
+Medir el volumen de madera de un árbol en pie es caro: hay que talarlo. Medir el
+diámetro es trivial (una cinta a la altura del pecho) y la altura es medible con
+un clinómetro. Si un modelo predice bien el volumen a partir de esas dos
+medidas, el inventario forestal completo cambia de costo.
+
+## Los datos: `trees`
+
+31 cerezos negros (*black cherry*) talados.
+
+| Variable | Descripción | Unidad |
+|---|---|---|
+| `Girth` | **Diámetro** del árbol medido a 4 pies 6 pulgadas del suelo. El nombre original (*girth* = circunferencia) **está mal puesto en el conjunto de datos**: los valores son diámetros. | pulgadas |
+| `Height` | Altura del árbol | pies |
+| `Volume` | Volumen de madera | pies cúbicos |
+
+```{r cargar-datos}
+# Opción usada: leer el CSV que acompaña a este documento.
+# (R también trae el conjunto 'trees' incorporado: data(trees). Usamos el CSV
+#  para que R y Python partan EXACTAMENTE del mismo archivo.)
+if (file.exists("trees.csv")) {
+  trees <- read.csv("trees.csv")
+  # la primera columna del CSV es el índice de fila exportado desde R
+  if (names(trees)[1] %in% c("X", "X.1", "")) trees <- trees[, -1]
+} else {
+  message("No se encontró trees.csv; se usa el conjunto incorporado de R.")
+  data(trees)
+}
+str(trees)
+```
+
+```{r exploracion-basica}
+dim(trees)
+colSums(is.na(trees))      # valores faltantes
+summary(trees)
+```
+
+No hay valores faltantes. Antes de modelar, miramos.
+
+```{r histogramas, fig.height=3.2}
+trees_largo <- stack(trees)          # columnas: values, ind
+ggplot(trees_largo, aes(values)) +
+  geom_histogram(bins = 10, fill = "steelblue", colour = "white") +
+  facet_wrap(~ ind, scales = "free") +
+  labs(title = "Distribución de las tres variables", x = NULL, y = "Frecuencia")
+```
+
+```{r boxplots, fig.height=3.2}
+ggplot(trees_largo, aes(ind, values)) +
+  geom_boxplot(fill = "steelblue", alpha = .5, outlier.colour = "firebrick") +
+  facet_wrap(~ ind, scales = "free") +
+  labs(title = "Diagramas de caja", x = NULL, y = NULL)
+```
+
+`Volume` es claramente asimétrica a la derecha y tiene un árbol muy grande
+(77 pies³). **Anotemos esa observación mentalmente**: volveremos a ella en el
+análisis de influencia.
+
+## Correlaciones y matriz de dispersión
+
+```{r correlaciones}
+round(cor(trees), 4)
+```
+
+```{r pairs}
+if (hay("GGally")) {
+  GGally::ggpairs(trees, title = "Matriz de dispersión y correlaciones")
+} else {
+  pairs(trees, pch = 19, col = "steelblue4",
+        main = "Matriz de dispersión")
+}
+```
+
+Tres lecturas:
+
+1. **`Volume`–`Girth`: $r = 0.967$.** Relación muy fuerte. El diámetro por sí
+   solo ya explicaría casi todo.
+2. **`Volume`–`Height`: $r = 0.598$.** Relación moderada. Los árboles altos
+   tienden a tener más volumen, pero con mucha dispersión.
+3. **`Girth`–`Height`: $r = 0.519$.** ⚠️ **Las dos predictoras están
+   correlacionadas entre sí.** Este hecho es *el* motivo por el que un
+   coeficiente en regresión múltiple no significa lo mismo que en regresión
+   simple. Lo trabajamos en la sección 3.
+
+```{r dispersiones, fig.height=3.2}
+p1 <- ggplot(trees, aes(Girth, Volume)) + geom_point(colour = "steelblue", size = 2) +
+  geom_smooth(method = "lm", se = FALSE, colour = "firebrick") + labs(title = "Volume ~ Girth")
+p2 <- ggplot(trees, aes(Height, Volume)) + geom_point(colour = "steelblue", size = 2) +
+  geom_smooth(method = "lm", se = FALSE, colour = "firebrick") + labs(title = "Volume ~ Height")
+p3 <- ggplot(trees, aes(Girth, Height)) + geom_point(colour = "darkgreen", size = 2) +
+  geom_smooth(method = "lm", se = FALSE, colour = "firebrick") + labs(title = "Height ~ Girth")
+print(p1); print(p2); print(p3)
+```
+
+> 🎓 **Pausa para el estudiante.** Antes de ajustar nada, escriba su respuesta:
+>
+> 1. ¿Qué signo espera para el coeficiente de `Girth`? ¿Y para `Height`?
+> 2. Un árbol es aproximadamente un cono o un cilindro. Si $V \propto d^2 h$,
+>    ¿espera que la relación entre `Volume` y `Girth` sea **exactamente** una
+>    recta? Guarde su respuesta: la retomamos en la sección 18.
+
+---
+
+# 2. El modelo de regresión lineal múltiple
+
+$$Y_i = \beta_0 + \beta_1 X_{1i} + \beta_2 X_{2i} + \epsilon_i,
+\qquad i = 1,\dots,n$$
+
+Para nuestros datos:
+
+$$Volume_i = \beta_0 + \beta_1\,Girth_i + \beta_2\,Height_i + \epsilon_i$$
+
+Geométricamente ya no ajustamos una **recta** sino un **plano** en el espacio
+$(Girth, Height, Volume)$ —y con $k$ predictoras, un hiperplano en $k+1$
+dimensiones.
+
+## El intercepto $\beta_0$
+
+Es el valor promedio de $Y$ cuando **todas** las predictoras valen cero. En
+`trees` eso sería un árbol de 0 pulgadas de diámetro y 0 pies de altura: **no
+existe**, y además está muy lejos del rango observado ($Girth\in[8.3, 20.6]$,
+$Height\in[63, 87]$). El intercepto aquí es un parámetro de ajuste, no un
+resultado interpretable. (Si se quiere un intercepto interpretable, se centran
+las predictoras en su media; entonces $\beta_0$ es el valor esperado de $Y$ para
+un árbol promedio.)
+
+## El coeficiente parcial $\beta_j$ — la idea central de la clase
+
+> $\beta_1$ es el cambio promedio esperado en $Y$ por un aumento de **una
+> unidad** en $X_1$, **manteniendo constantes las demás variables del modelo**.
+
+Esa última cláusula lo cambia todo. En regresión simple, $\beta_1$ mezcla dos
+cosas: el efecto directo de $X_1$ **y** el efecto de todo aquello que varía junto
+con $X_1$. En regresión múltiple, al incluir $X_2$, el coeficiente $\beta_1$ se
+"limpia" del efecto de $X_2$: es un **efecto parcial** o **ajustado**.
+
+Ejemplo numérico anticipado (lo verificamos en la sección 5):
+
+| Modelo | Coeficiente de `Girth` | Lectura |
+|---|---|---|
+| `Volume ~ Girth` | $5.066$ | Comparando árboles que difieren 1 pulgada de diámetro **sin importar su altura**, el volumen difiere en promedio 5.07 pies³. Parte de esa diferencia se debe a que los árboles más gruesos **también tienden a ser más altos**. |
+| `Volume ~ Girth + Height` | $4.708$ | Comparando árboles que difieren 1 pulgada de diámetro **pero con la misma altura**, el volumen difiere en promedio 4.71 pies³. |
+
+La diferencia $5.066 - 4.708 = 0.358$ es justamente la parte del "efecto" del
+diámetro que en realidad era altura disfrazada.
+
+---
+
+# 3. ¿Qué significa "controlar por otras variables"?
+
+Esta sección merece detenerse. "Manteniendo las demás constantes" no es una
+fórmula retórica: es una operación concreta que podemos **ver**.
+
+```{r controlar-comparacion}
+m_simple   <- lm(Volume ~ Girth, data = trees)
+m_multiple <- lm(Volume ~ Girth + Height, data = trees)
+
+comparacion <- data.frame(
+  modelo             = c("Volume ~ Girth", "Volume ~ Girth + Height"),
+  coef_Girth         = c(coef(m_simple)["Girth"], coef(m_multiple)["Girth"]),
+  ee_Girth           = c(summary(m_simple)$coefficients["Girth", 2],
+                         summary(m_multiple)$coefficients["Girth", 2]),
+  R2_ajustado        = c(summary(m_simple)$adj.r.squared,
+                         summary(m_multiple)$adj.r.squared)
+)
+comparacion
+```
+
+## Por qué cambia el coeficiente: regresión parcial "a mano"
+
+El coeficiente de `Girth` en el modelo múltiple se puede obtener en dos pasos
+—esto **es** lo que significa "controlar por `Height`":
+
+```{r frisch-waugh}
+# Paso 1: quitarle a Girth todo lo que Height puede explicar de él
+girth_residual  <- residuals(lm(Girth  ~ Height, data = trees))
+
+# Paso 2: quitarle a Volume todo lo que Height puede explicar de él
+volume_residual <- residuals(lm(Volume ~ Height, data = trees))
+
+# Paso 3: regresar un residuo contra el otro
+coef(lm(volume_residual ~ girth_residual))["girth_residual"]
+
+# ...y comparar con el coeficiente del modelo múltiple:
+coef(m_multiple)["Girth"]
+```
+
+Son **idénticos** (teorema de Frisch–Waugh–Lovell). El coeficiente parcial de
+`Girth` es la relación entre *la parte de `Volume` que `Height` no explica* y
+*la parte de `Girth` que `Height` no explica*. Es decir: **la relación que queda
+después de descontar la altura de ambos lados**.
+
+```{r grafico-parcial, fig.height=4}
+ggplot(data.frame(girth_residual, volume_residual), aes(girth_residual, volume_residual)) +
+  geom_point(size = 2.2, colour = "steelblue") +
+  geom_smooth(method = "lm", se = FALSE, colour = "firebrick") +
+  geom_hline(yintercept = 0, linetype = 2, colour = "grey50") +
+  geom_vline(xintercept = 0, linetype = 2, colour = "grey50") +
+  labs(title = "Gráfico de regresión parcial: Girth | Height",
+       subtitle = "La pendiente de esta recta ES el coeficiente parcial de Girth",
+       x = "Girth ajustado por Height (residuos)",
+       y = "Volume ajustado por Height (residuos)")
+```
+
+## Tres advertencias
+
+1. **El coeficiente parcial depende del modelo.** Si mañana agrego una tercera
+   predictora, el coeficiente de `Girth` puede volver a cambiar. No es "el
+   efecto del diámetro": es "el efecto del diámetro **en este modelo**".
+2. **"Manteniendo constante" puede ser físicamente imposible.** Aquí sí tiene
+   sentido (existen árboles gruesos y bajos, y delgados y altos). Pero si dos
+   predictoras están casi perfectamente correlacionadas, la comparación que
+   describe el coeficiente **no existe en los datos** (véase multicolinealidad,
+   sección 18).
+3. **Controlar estadísticamente ≠ establecer causalidad.** Ajustar por `Height`
+   no convierte a $\beta_1$ en un efecto causal. La causalidad requiere
+   supuestos sobre el diseño (aleatorización, ausencia de confusores no
+   medidos), no un `+ Height` en la fórmula.
+
+---
+
+# 4. Mínimos cuadrados: qué hace el software
+
+## La idea, sin matrices
+
+Entre todos los planos posibles, elegimos el que hace **mínima la suma de los
+cuadrados de los errores**:
+
+$$SCE = \sum_{i=1}^{n}\left(y_i - \hat y_i\right)^2
+= \sum_{i=1}^{n}\left(y_i - \beta_0 - \beta_1 x_{1i} - \beta_2 x_{2i}\right)^2$$
+
+¿Por qué los *cuadrados*? Porque (a) penaliza más los errores grandes, (b) evita
+que los errores positivos y negativos se cancelen, y (c) tiene solución
+algebraica cerrada.
+
+## La formulación matricial
+
+$$\mathbf{y} = \mathbf{X}\boldsymbol{\beta} + \boldsymbol{\epsilon},
+\qquad
+\mathbf{X} = \begin{pmatrix}
+1 & x_{11} & x_{12}\\
+1 & x_{21} & x_{22}\\
+\vdots & \vdots & \vdots\\
+1 & x_{n1} & x_{n2}
+\end{pmatrix}$$
+
+Derivando $S(\boldsymbol\beta) = (\mathbf y - \mathbf X\boldsymbol\beta)'(\mathbf y - \mathbf X\boldsymbol\beta)$
+e igualando a cero se llega a las **ecuaciones normales**
+$\mathbf{X'X}\hat{\boldsymbol\beta} = \mathbf{X'y}$, de donde
+
+$$\boxed{\;\hat{\boldsymbol{\beta}} = (\mathbf{X}'\mathbf{X})^{-1}\mathbf{X}'\mathbf{y}\;}$$
+
+siempre que $(\mathbf{X'X})^{-1}$ exista (volveremos a esto en multicolinealidad).
+
+## Cálculo paso a paso en R
+
+```{r minimos-cuadrados-manual}
+y  <- trees$Volume                               # vector n x 1
+X  <- cbind(Intercepto = 1,                      # matriz n x p (p = 3)
+            Girth  = trees$Girth,
+            Height = trees$Height)
+dim(X)
+
+XtX     <- t(X) %*% X            ; XtX
+XtX_inv <- solve(XtX)            ; round(XtX_inv, 6)
+Xty     <- t(X) %*% y            ; Xty
+
+beta_hat <- XtX_inv %*% Xty
+beta_hat
+```
+
+```{r minimos-cuadrados-comprobacion}
+# ¿Coincide con lm()?
+cbind(manual = as.vector(beta_hat), lm = coef(m_multiple))
+all.equal(as.vector(beta_hat), unname(coef(m_multiple)))
+```
+
+**Coinciden.** El objetivo de este bloque no es enseñar álgebra lineal avanzada
+sino desmitificar `lm()`: no hay magia, hay una inversa y dos productos
+matriciales.
+
+```{r matriz-sombrero}
+# La matriz sombrero H = X(X'X)^{-1}X' proyecta y sobre el espacio de las columnas de X
+H <- X %*% XtX_inv %*% t(X)
+ajustados_manual <- as.vector(H %*% y)
+head(cbind(manual = ajustados_manual, lm = fitted(m_multiple)))
+# Los elementos de la diagonal de H son los 'leverages' (sección 16)
+round(head(diag(H)), 4)
+```
+
+---
+
+# 5. Ajuste e interpretación del modelo
+
+```{r ajuste}
+modelo <- lm(Volume ~ Girth + Height, data = trees)
+summary(modelo)
+```
+
+## La ecuación estimada
+
+$$\widehat{Volume} = -57.988 + 4.708\,Girth + 0.339\,Height$$
+
+## Interpretación coeficiente por coeficiente
+
+```{r tidy-coef}
+tidy(modelo, conf.int = TRUE) |>
+  mutate(across(where(is.numeric), function(x) round(x, 4)))
+```
+
+**Intercepto ($\hat\beta_0 = -57.988$).** Volumen promedio de un árbol de 0
+pulgadas de diámetro y 0 pies de altura. **Sin interpretación práctica**: es una
+extrapolación absurda y de hecho da negativo. Cumple la función de posicionar el
+plano.
+
+**`Girth` ($\hat\beta_1 = 4.708$).** Entre árboles **de la misma altura**, uno
+con una pulgada más de diámetro tiene en promedio **4.71 pies³ más de volumen**.
+
+* Error estándar $= 0.264$: la incertidumbre de esa estimación.
+* $t = 4.708/0.264 = 17.82$: el coeficiente está a casi 18 errores estándar de
+  cero.
+* $p < 10^{-16}$: si el diámetro no aportara nada una vez conocida la altura,
+  ver un coeficiente tan grande sería prácticamente imposible.
+* IC 95 %: $[4.167,\ 5.250]$. **Este es el número que se reporta**: los datos son
+  compatibles con un efecto de entre 4.2 y 5.2 pies³ por pulgada.
+
+**`Height` ($\hat\beta_2 = 0.339$).** Entre árboles **del mismo diámetro**, uno
+con un pie más de altura tiene en promedio **0.34 pies³ más de volumen**.
+
+* $t = 2.607$, $p = 0.0145$: significativo al 5 %, pero con **mucha menos
+  evidencia** que `Girth`.
+* IC 95 %: $[0.073,\ 0.606]$. El intervalo es ancho en términos relativos (el
+  extremo superior es más de 8 veces el inferior): sabemos que el efecto es
+  positivo, pero su magnitud está mal determinada.
+
+**Error estándar residual $\hat\sigma = 3.882$ pies³** con 28 grados de libertad.
+Esa es la escala típica del error de este modelo. Como el volumen promedio es
+30.17 pies³, el error típico es $\approx 13\%$ del valor medio.
+
+```{r confint}
+confint(modelo, level = 0.95)
+```
+
+> **Regla de oro de interpretación:** nunca reporte solo el signo y el p-valor.
+> Reporte **magnitud + unidades + intervalo + la cláusula "manteniendo constante
+> lo demás"**. "`Girth` es significativa" no le sirve a un ingeniero forestal;
+> "una pulgada más de diámetro, a igual altura, son entre 4.2 y 5.2 pies³ más de
+> madera" sí.
+
+---
+
+# 6. Significancia global: la prueba $F$
+
+> **Pregunta:** ¿el **conjunto** de predictoras aporta información sobre
+> `Volume`, o el modelo completo no es mejor que predecir siempre la media?
+
+$$H_0:\ \beta_1 = \beta_2 = \cdots = \beta_k = 0
+\qquad\text{vs.}\qquad
+H_1:\ \text{al menos un } \beta_j \neq 0$$
+
+## La descomposición de la variabilidad
+
+$$\underbrace{\sum(y_i-\bar y)^2}_{SCT}
+=\underbrace{\sum(\hat y_i-\bar y)^2}_{SCR\ (\text{regresión})}
++\underbrace{\sum(y_i-\hat y_i)^2}_{SCE\ (\text{error})}$$
+
+```{r anova-manual}
+y_barra <- mean(trees$Volume)
+SCT <- sum((trees$Volume - y_barra)^2)
+SCR <- sum((fitted(modelo) - y_barra)^2)
+SCE <- sum(residuals(modelo)^2)
+
+n <- nrow(trees); k <- 2; p <- k + 1
+
+tabla_anova <- data.frame(
+  Fuente = c("Regresión", "Error", "Total"),
+  SC     = c(SCR, SCE, SCT),
+  gl     = c(k, n - p, n - 1),
+  CM     = c(SCR / k, SCE / (n - p), NA),
+  F      = c((SCR / k) / (SCE / (n - p)), NA, NA),
+  p_valor= c(pf((SCR / k) / (SCE / (n - p)), k, n - p, lower.tail = FALSE), NA, NA)
+)
+tabla_anova
+```
+
+```{r anova-r}
+# La misma información con anova(): descomposición SECUENCIAL (tipo I)
+anova(modelo)
+
+# Comparación explícita contra el modelo nulo = prueba F global
+anova(lm(Volume ~ 1, data = trees), modelo)
+```
+
+**Lectura.** $F = 254.97$ con 2 y 28 grados de libertad,
+$p \approx 1.07\times10^{-18}$. La variabilidad explicada por el modelo es
+**255 veces** mayor (por grado de libertad) que la variabilidad residual. El
+conjunto $\{Girth, Height\}$ contiene información sustancial sobre el volumen.
+
+> ⚠️ **Ojo con `anova()`.** `anova(modelo)` da sumas de cuadrados
+> **secuenciales**: la línea de `Height` mide lo que `Height` aporta *después de*
+> `Girth`. Si invierte el orden en la fórmula, esos números cambian. Las pruebas
+> $t$ del `summary()`, en cambio, son siempre "esta variable dada **todas** las
+> demás" y no dependen del orden.
+
+## Prueba $F$ global ≠ pruebas $t$ individuales
+
+> 🎓 **Pregunta conceptual:** ¿puede el modelo global ser significativo y ninguna
+> variable individual serlo?
+
+**Sí, y ocurre con frecuencia.** Son preguntas distintas:
+
+* La $F$ global pregunta: *¿aporta algo el conjunto?*
+* Cada $t$ pregunta: *¿aporta algo **esta** variable que las otras no aporten ya?*
+
+Si dos predictoras están muy correlacionadas entre sí, ambas pueden ser
+prescindibles **por separado** (porque la otra la sustituye) y sin embargo el par
+ser imprescindible. La $F$ las evalúa en bloque; las $t$ las evalúan al margen.
+
+También ocurre lo contrario: con muchas predictoras irrelevantes, alguna $t$
+puede salir significativa por azar mientras la $F$ global no lo es. Por eso
+**se mira primero la $F$, después las $t$**.
+
+```{r f-vs-t}
+# Verificación numérica: con 1 grado de libertad en el numerador, F = t^2.
+# Comparar el modelo con y sin Height equivale a la prueba t de Height.
+anova(lm(Volume ~ Girth, data = trees), modelo)
+summary(modelo)$coefficients["Height", "t value"]^2
+```
+
+---
+
+# 7. Calidad del ajuste: $R^2$ y $R^2$ ajustado
+
+$$R^2 = 1-\frac{SCE}{SCT} = \frac{SCR}{SCT}
+\qquad\qquad
+R^2_{aj} = 1-\frac{SCE/(n-p)}{SCT/(n-1)}$$
+
+```{r r2}
+c(R2 = summary(modelo)$r.squared,
+  R2_ajustado = summary(modelo)$adj.r.squared,
+  R2_manual = 1 - SCE/SCT)
+```
+
+$R^2 = 0.948$: el modelo explica el **94.8 %** de la variabilidad del volumen.
+
+## Por qué existe el $R^2$ ajustado
+
+$R^2$ **nunca baja** al agregar predictoras, aunque sean ruido puro: siempre hay
+algún ajuste espurio que reduce un poco el $SCE$. Demostrémoslo:
+
+```{r r2-ruido}
+set.seed(2026)
+trees_ruido <- trees
+trees_ruido$basura1 <- rnorm(n)     # tres variables sin ninguna relación con Volume
+trees_ruido$basura2 <- rnorm(n)
+trees_ruido$basura3 <- rnorm(n)
+
+m_basura <- lm(Volume ~ Girth + Height + basura1 + basura2 + basura3, data = trees_ruido)
+
+data.frame(
+  modelo      = c("Girth + Height", "Girth + Height + 3 variables aleatorias"),
+  R2          = c(summary(modelo)$r.squared,   summary(m_basura)$r.squared),
+  R2_ajustado = c(summary(modelo)$adj.r.squared, summary(m_basura)$adj.r.squared),
+  sigma       = c(summary(modelo)$sigma,        summary(m_basura)$sigma)
+)
+```
+
+$R^2$ **subió** al agregar tres columnas de números aleatorios. El $R^2$ ajustado
+penaliza por el número de parámetros y **baja**, que es la respuesta correcta.
+
+> **No use $R^2$ como única medida de calidad.** Un $R^2$ alto es compatible con
+> supuestos violados, con una observación influyente que domina el ajuste y con
+> un modelo inútil fuera del rango de los datos. El $R^2$ mide cuánto se acerca
+> el modelo a **estos** datos, no si el modelo es correcto. Por eso el siguiente
+> bloque grande de la clase es el diagnóstico.
+
+---
+
+# 8. Predicción: dos intervalos que no son lo mismo
+
+```{r prediccion-datos}
+arboles_nuevos <- data.frame(
+  Girth  = c(11.0, 13.2, 16.0),
+  Height = c(70,   76,   82)
+)
+arboles_nuevos
+```
+
+```{r prediccion-puntual}
+# Predicción puntual
+predict(modelo, newdata = arboles_nuevos)
+```
+
+```{r prediccion-intervalos}
+ic_media <- predict(modelo, newdata = arboles_nuevos, interval = "confidence", level = 0.95)
+ip_nueva <- predict(modelo, newdata = arboles_nuevos, interval = "prediction", level = 0.95)
+
+data.frame(
+  arboles_nuevos,
+  estimacion = ic_media[, "fit"],
+  IC_inf = ic_media[, "lwr"], IC_sup = ic_media[, "upr"],
+  IP_inf = ip_nueva[, "lwr"], IP_sup = ip_nueva[, "upr"]
+) |> mutate(across(where(is.numeric), function(x) round(x, 3)))
+```
+
+## La diferencia conceptual
+
+Ambos intervalos están centrados en la misma predicción puntual, pero responden a
+preguntas distintas:
+
+| | Intervalo de **confianza** | Intervalo de **predicción** |
+|---|---|---|
+| **Pregunta** | ¿Dónde está el volumen **promedio** de *todos* los árboles con $Girth=13.2$ y $Height=76$? | ¿Dónde caerá el volumen de **un** árbol concreto con esas medidas? |
+| **Objeto estimado** | Un parámetro: $E[Y\mid x_0]$ | Una variable aleatoria: $Y_0$ |
+| **Error estándar** | $\hat\sigma\sqrt{\mathbf x_0'(\mathbf{X'X})^{-1}\mathbf x_0}$ | $\hat\sigma\sqrt{1+\mathbf x_0'(\mathbf{X'X})^{-1}\mathbf x_0}$ |
+| **Ancho (árbol 2)** | $[28.5,\ 31.4]$ → **2.9** pies³ | $[21.9,\ 38.0]$ → **16.2** pies³ |
+
+El "+1" bajo la raíz es toda la diferencia: al predecir **un individuo** cargamos
+además con su variabilidad propia $\sigma^2$, que **no desaparece** aunque
+tuviéramos infinitos datos. Por eso:
+
+* El IC de la media se puede hacer tan angosto como se quiera aumentando $n$.
+* El IP tiene un piso: $\approx \pm 1.96\,\hat\sigma \approx \pm 7.6$ pies³ aquí.
+
+> **Error frecuente.** Reportar el IC de la media cuando lo que el usuario quiere
+> es predecir un árbol. Si un ingeniero forestal pregunta "¿cuánta madera saco de
+> **este** árbol?", la respuesta honesta es el **intervalo de predicción**.
+
+```{r prediccion-grafico, fig.height=4}
+malla <- data.frame(Girth = seq(min(trees$Girth), max(trees$Girth), length.out = 60),
+                    Height = mean(trees$Height))
+bandas <- cbind(malla,
+                as.data.frame(predict(modelo, malla, interval = "confidence")),
+                setNames(as.data.frame(predict(modelo, malla, interval = "prediction"))[, 2:3],
+                         c("p_lwr", "p_upr")))
+
+ggplot(bandas, aes(Girth)) +
+  geom_ribbon(aes(ymin = p_lwr, ymax = p_upr), fill = "grey85") +
+  geom_ribbon(aes(ymin = lwr,   ymax = upr),   fill = "steelblue", alpha = .45) +
+  geom_line(aes(y = fit), colour = "firebrick", linewidth = 1) +
+  geom_point(data = trees, aes(Girth, Volume), colour = "grey25", size = 1.8) +
+  labs(title = "Bandas de confianza (azul) y de predicción (gris)",
+       subtitle = "Height fijada en su media (76 pies)",
+       y = "Volume (pies cúbicos)")
+```
+
+> ⚠️ **Extrapolación.** El modelo solo es creíble dentro del rango observado
+> ($Girth \in [8.3, 20.6]$, $Height \in [63, 87]$) **y** en combinaciones
+> plausibles de ambas. Predecir un árbol de $Girth = 20$ y $Height = 63$ es
+> extrapolar aunque cada valor esté dentro de su rango individual: esa
+> combinación no existe en los datos.
+
+---
+
+# 9. Antes de confiar en el modelo: los supuestos
+
+> Obtener coeficientes, $R^2$ y p-valores **no significa que el análisis haya
+> terminado**. Significa que apenas empieza la parte interesante.
+
+`lm()` siempre devuelve números. Devuelve coeficientes aunque la relación sea una
+parábola, devuelve p-valores aunque la varianza explote y devuelve $R^2 = 0.99$
+aunque un solo dato esté sosteniendo todo el ajuste. **Los supuestos son las
+condiciones bajo las cuales esos números significan lo que creemos que
+significan.**
+
+## Qué supone el modelo, y para qué
+
+| # | Supuesto | Enunciado | Si falla, ¿qué se rompe? |
+|---|---|---|---|
+| 1 | **Linealidad** (media) | $E[Y \mid \mathbf X] = \beta_0+\beta_1X_1+\cdots+\beta_kX_k$ | **Todo.** Los coeficientes estiman algo que no existe; las predicciones son sesgadas de forma sistemática. |
+| 2 | **Homocedasticidad** (varianza) | $Var(\epsilon_i) = \sigma^2$ constante | Los $\hat\beta$ siguen siendo insesgados, pero los **errores estándar, las $t$, la $F$ y los intervalos** son incorrectos. |
+| 3 | **Independencia** | $Cov(\epsilon_i, \epsilon_j)=0,\ i\neq j$ | Igual que arriba: la inferencia se vuelve optimista (errores estándar demasiado pequeños). |
+| 4 | **Normalidad** | $\epsilon_i \sim N(0,\sigma^2)$ | Solo afecta a la **inferencia exacta en muestras pequeñas** (pruebas $t$/$F$ e intervalos). Con $n$ grande el TLC ayuda. |
+| 5 | **Observaciones comparables** | Ninguna observación domina el ajuste | Las conclusiones dependen de uno o dos datos. No es un supuesto distribucional sino de **robustez**. |
+| 6 | **Predictoras no colineales** | $(\mathbf{X'X})^{-1}$ existe y está bien condicionada | Los coeficientes individuales se vuelven inestables y sin interpretación separable. |
+
+Conviene tener clara la **jerarquía**: 1 es de vida o muerte; 2 y 3 dañan la
+inferencia; 4 es la menos crítica de todas (y la que más se sobre-enfatiza en los
+cursos); 5 y 6 no son supuestos sobre $\epsilon$ sino sobre la **estructura de
+los datos**.
+
+---
+
+# 10. Residuos: cuatro versiones y por qué hacen falta
+
+## Residuo ordinario
+
+$$e_i = y_i - \hat y_i$$
+
+Problema: **no tienen varianza constante aunque el modelo sea perfecto**. Se
+demuestra que $\mathbf e = (\mathbf I - \mathbf H)\boldsymbol\epsilon$, de donde
+
+$$Var(e_i) = \sigma^2\,(1 - h_{ii})$$
+
+donde $h_{ii}$ es el $i$-ésimo elemento diagonal de $\mathbf H = \mathbf X(\mathbf{X'X})^{-1}\mathbf X'$
+(el **leverage**). Las observaciones con predictoras extremas tienen $h_{ii}$
+alto y, por construcción, residuos **más pequeños**: el modelo se "estira" para
+alcanzarlas. Comparar residuos ordinarios entre sí es comparar peras con
+manzanas.
+
+## Residuo estandarizado (con $\sigma$ conocido)
+
+$$z_i = \frac{e_i}{\sigma\sqrt{1-h_{ii}}}$$
+
+Correcto en teoría, inútil en la práctica: $\sigma$ es desconocido.
+
+## Residuo studentizado **internamente** — `rstandard()`
+
+Sustituimos $\sigma$ por $\hat\sigma = \sqrt{SCE/(n-p)}$:
+
+$$r_i = \frac{e_i}{\hat\sigma\sqrt{1-h_{ii}}}$$
+
+Inconveniente sutil: si la observación $i$ es un dato atípico, **infla su propio
+$\hat\sigma$** y por tanto se disimula a sí misma.
+
+## Residuo studentizado **externamente** — `rstudent()`
+
+Estimamos $\sigma$ **excluyendo** la observación $i$:
+
+$$r_i^{*} = \frac{e_i}{\hat\sigma_{(i)}\sqrt{1-h_{ii}}},
+\qquad \hat\sigma_{(i)}^2 = \frac{SCE_{(i)}}{n-p-1}$$
+
+Ahora el numerador y el denominador son independientes y
+$r_i^{*} \sim t_{n-p-1}$ bajo el modelo. **Este es el residuo que se usa para
+detectar atípicos**: un dato malo ya no puede esconderse inflando el error
+estándar con el que se lo juzga.
+
+> **En una frase:** los residuos studentizados ponen a todas las observaciones en
+> la misma escala, corrigiendo por el hecho de que el modelo se ajusta más a unos
+> puntos que a otros.
+
+## La tabla de diagnóstico completa
+
+```{r tabla-residuos}
+diagnostico <- data.frame(
+  obs            = seq_len(n),
+  Girth          = trees$Girth,
+  Height         = trees$Height,
+  observado      = trees$Volume,
+  estimado       = round(fitted(modelo), 3),
+  residual       = round(residuals(modelo), 3),
+  r_estandarizado= round(rstandard(modelo), 3),
+  r_studentizado = round(rstudent(modelo), 3),
+  leverage       = round(hatvalues(modelo), 4),
+  cook           = round(cooks.distance(modelo), 4)
+)
+diagnostico
+```
+
+```{r umbrales}
+umbral_h    <- 2 * p / n          # leverage alto
+umbral_cook <- 4 / (n - p)        # influencia (una de varias reglas)
+c(umbral_leverage = umbral_h, umbral_cook = umbral_cook,
+  umbral_residuo = 2)
+```
+
+```{r resumen-marcados}
+diagnostico |>
+  filter(abs(r_studentizado) > 2 | leverage > umbral_h | cook > umbral_cook) |>
+  select(obs, Girth, Height, observado, estimado, r_studentizado, leverage, cook)
+```
+
+Cinco observaciones se levantan la mano. La **31** aparece en las tres listas:
+es el árbol grande que vimos en el boxplot. Volvemos a ella en la sección 16.
+
+---
+
+# 11. Supuesto de linealidad
+
+**¿Qué esperamos ver?** Una nube **sin forma**: los residuos repartidos al azar
+alrededor de cero, con la misma dispersión a lo largo de todo el eje horizontal.
+Cualquier patrón sistemático es información que el modelo **no capturó**.
+
+```{r linealidad-fitted, fig.height=4}
+ggplot(data.frame(ajustados = fitted(modelo), r = rstudent(modelo)),
+       aes(ajustados, r)) +
+  geom_point(size = 2.2, colour = "steelblue") +
+  geom_hline(yintercept = 0, colour = "grey40") +
+  geom_hline(yintercept = c(-2, 2), linetype = 2, colour = "firebrick") +
+  geom_smooth(se = FALSE, colour = "darkorange", method = "loess", span = 1) +
+  labs(title = "Residuos studentizados vs. valores ajustados",
+       x = "Valores ajustados", y = "Residuo studentizado")
+```
+
+```{r linealidad-predictores, fig.height=3.2}
+par(mfrow = c(1, 2), mar = c(4, 4, 2, 1))
+plot(trees$Girth,  rstudent(modelo), pch = 19, col = "steelblue",
+     xlab = "Girth", ylab = "Residuo studentizado", main = "Residuos vs. Girth")
+abline(h = 0); abline(h = c(-2, 2), lty = 2, col = "red")
+lines(lowess(trees$Girth, rstudent(modelo)), col = "darkorange", lwd = 2)
+plot(trees$Height, rstudent(modelo), pch = 19, col = "steelblue",
+     xlab = "Height", ylab = "Residuo studentizado", main = "Residuos vs. Height")
+abline(h = 0); abline(h = c(-2, 2), lty = 2, col = "red")
+lines(lowess(trees$Height, rstudent(modelo)), col = "darkorange", lwd = 2)
+par(mfrow = c(1, 1))
+```
+
+**Diagnóstico.** Los gráficos contra los ajustados y contra `Girth` muestran una
+**curvatura en U clarísima**: residuos positivos en los extremos, negativos en el
+centro. No es ruido: es una **señal**.
+
+```{r linealidad-patron, echo=FALSE, fig.height=3}
+set.seed(1)
+xx <- seq(0, 10, length.out = 120)
+patrones <- rbind(
+  data.frame(x = xx, e = rnorm(120, 0, 1),                     tipo = "A) Correcto: nube sin forma"),
+  data.frame(x = xx, e = 1.2*(xx-5)^2/5 - 3 + rnorm(120,0,.6), tipo = "B) Curvatura: falta un término no lineal"),
+  data.frame(x = xx, e = rnorm(120, 0, .25 + xx/4),            tipo = "C) Embudo: heterocedasticidad")
+)
+ggplot(patrones, aes(x, e)) + geom_point(size = 1.2, colour = "steelblue") +
+  geom_hline(yintercept = 0, colour = "firebrick") +
+  facet_wrap(~ tipo, scales = "free_y") +
+  labs(title = "Tres patrones que hay que aprender a reconocer",
+       x = "Valores ajustados", y = "Residuos")
+```
+
+Un patrón de curvatura puede significar tres cosas:
+
+1. **Falta una transformación** de alguna predictora ($\log X$, $\sqrt X$, $X^2$).
+2. **Falta una variable** en el modelo (variable omitida).
+3. **La forma funcional es otra** (multiplicativa en lugar de aditiva, por ejemplo).
+
+En `trees` sabemos cuál es: el volumen de un sólido no es una función lineal de
+sus dimensiones. Lo resolvemos en la sección 18.
+
+## Gráficos de regresión parcial
+
+Aíslan la relación de cada predictora con $Y$ una vez descontadas las demás. Son
+la herramienta correcta para decidir **cuál** predictora necesita transformarse.
+
+```{r avplots, fig.height=3.6}
+if (hay("car")) {
+  car::avPlots(modelo, pch = 19, col = "steelblue", col.lines = "firebrick")
+} else {
+  op <- par(mfrow = c(1, 2), mar = c(4, 4, 2, 1))
+  for (v in c("Girth", "Height")) {
+    otras <- setdiff(c("Girth", "Height"), v)
+    rx <- residuals(lm(reformulate(otras, response = v),        data = trees))
+    ry <- residuals(lm(reformulate(otras, response = "Volume"), data = trees))
+    plot(rx, ry, pch = 19, col = "steelblue", main = paste("Parcial:", v),
+         xlab = paste(v, "| otras"), ylab = "Volume | otras")
+    abline(lm(ry ~ rx), col = "firebrick", lwd = 2)
+  }
+  par(op)
+}
+```
+
+---
+
+# 12. Normalidad de los residuos
+
+$$H_0:\ \text{los residuos son compatibles con una distribución normal}$$
+$$H_1:\ \text{los residuos no son compatibles con la normalidad}$$
+
+```{r normalidad-graficos, fig.height=3.4}
+r_stud <- rstudent(modelo)
+par(mfrow = c(1, 2), mar = c(4, 4, 2.5, 1))
+hist(r_stud, breaks = 8, col = "steelblue", border = "white", freq = FALSE,
+     main = "Histograma y densidad", xlab = "Residuo studentizado")
+lines(density(r_stud), lwd = 2, col = "darkorange")
+curve(dnorm(x), add = TRUE, lwd = 2, lty = 2, col = "firebrick")
+legend("topright", c("Densidad residuos", "N(0,1)"), lty = c(1, 2),
+       col = c("darkorange", "firebrick"), bty = "n", cex = .8)
+
+qqnorm(r_stud, pch = 19, col = "steelblue", main = "Q-Q normal")
+qqline(r_stud, col = "firebrick", lwd = 2)
+par(mfrow = c(1, 1))
+```
+
+```{r shapiro}
+shapiro.test(rstudent(modelo))
+```
+
+**Lectura.** $W = 0.973$, $p = 0.612$. No hay evidencia contra la normalidad. En
+el Q-Q plot los puntos siguen la línea salvo en el extremo superior derecho
+(la observación 31, otra vez).
+
+## Tres advertencias sobre este supuesto
+
+1. **El p-valor no sustituye al gráfico.** Shapiro-Wilk resume en un número lo
+   que el Q-Q plot muestra en detalle. Aquí el test "pasa" pero el Q-Q señala
+   un punto problemático que el test no captura. **Mire siempre el gráfico.**
+2. **Con $n$ grande, los tests detectan desviaciones triviales.** Con
+   $n = 5000$, Shapiro-Wilk rechaza la normalidad por asimetrías sin ninguna
+   relevancia práctica. El test responde "¿es *exactamente* normal?", y la
+   respuesta con datos reales siempre es no.
+3. **La normalidad no es un requisito para "poder hacer regresión".** Mínimos
+   cuadrados es el mejor estimador lineal insesgado (Gauss-Markov) **sin**
+   suponer normalidad. La normalidad se necesita para que las pruebas $t$/$F$ y
+   los intervalos sean *exactos* en muestras pequeñas. Con $n = 31$ importa; con
+   $n = 3000$ es casi irrelevante.
+
+> **Y lo más importante:** el supuesto es sobre los **errores**, no sobre $Y$ ni
+> sobre las predictoras. Que `Volume` sea asimétrica no viola nada por sí mismo.
+
+---
+
+# 13. Homocedasticidad
+
+$$Var(\epsilon_i) = \sigma^2 \quad \text{para todo } i$$
+
+```{r homocedasticidad, fig.height=3.4}
+par(mfrow = c(1, 2), mar = c(4, 4, 2.5, 1))
+plot(fitted(modelo), rstudent(modelo), pch = 19, col = "steelblue",
+     main = "Residuos vs. ajustados", xlab = "Ajustados", ylab = "Residuo studentizado")
+abline(h = 0, col = "grey40"); abline(h = c(-2, 2), lty = 2, col = "firebrick")
+
+plot(fitted(modelo), sqrt(abs(rstandard(modelo))), pch = 19, col = "steelblue",
+     main = "Scale-Location", xlab = "Ajustados", ylab = expression(sqrt(abs(r[estandarizado]))))
+lines(lowess(fitted(modelo), sqrt(abs(rstandard(modelo)))), col = "darkorange", lwd = 2)
+par(mfrow = c(1, 1))
+```
+
+El gráfico **Scale-Location** usa $\sqrt{|r_i|}$ porque elimina el signo (nos
+interesa la *magnitud*) y estabiliza la escala. **Queremos una línea horizontal**
+con puntos repartidos por igual.
+
+## Prueba de Breusch-Pagan
+
+$$H_0:\ \text{varianza constante (homocedasticidad)}$$
+$$H_1:\ \text{la varianza depende de los predictores (heterocedasticidad)}$$
+
+La lógica: si la varianza fuese constante, los residuos al cuadrado no deberían
+poder predecirse a partir de las $X$. La prueba regresa $e_i^2$ contra las
+predictoras y mira si esa regresión auxiliar explica algo.
+
+```{r bptest}
+if (hay("lmtest")) {
+  print(lmtest::bptest(modelo))
+} else {
+  # Versión studentizada (Koenker), que es la que usa lmtest::bptest por defecto
+  e2  <- residuals(modelo)^2
+  aux <- lm(e2 ~ Girth + Height, data = trees)
+  LM  <- n * summary(aux)$r.squared
+  cat("Breusch-Pagan (Koenker) LM =", round(LM, 4),
+      " gl =", k, " p-valor =", round(pchisq(LM, k, lower.tail = FALSE), 4), "\n")
+}
+```
+
+**Lectura.** $BP = 2.468$, gl $= 2$, $p = 0.291$. **No rechazamos** la
+homocedasticidad. Ojo: con $n = 31$ la prueba tiene poca potencia; "no rechazar"
+no es "confirmar".
+
+## Cómo se ve un embudo
+
+```{r embudo, echo=FALSE, fig.height=3}
+set.seed(7)
+xe <- runif(200, 1, 10); ye <- 2 + 1.5*xe + rnorm(200, 0, .4*xe)
+me <- lm(ye ~ xe)
+par(mfrow = c(1, 2), mar = c(4, 4, 2.5, 1))
+plot(xe, ye, pch = 19, col = "grey60", cex = .7, main = "Datos con varianza creciente")
+abline(me, col = "firebrick", lwd = 2)
+plot(fitted(me), rstandard(me), pch = 19, col = "steelblue", cex = .7,
+     main = "Patrón de EMBUDO", xlab = "Ajustados", ylab = "Residuo estandarizado")
+abline(h = 0, col = "grey40")
+par(mfrow = c(1, 1))
+```
+
+La dispersión crece con el nivel: típico cuando $Y$ es un conteo, un monto, una
+concentración o cualquier cantidad positiva con efecto multiplicativo. La
+solución habitual es transformar $Y$ (log, raíz) o usar errores estándar
+robustos.
+
+---
+
+# 14. Independencia
+
+$$H_0:\ \rho_1 = 0 \ \ (\text{ausencia de autocorrelación de orden 1})$$
+
+El estadístico de Durbin-Watson
+
+$$d = \frac{\sum_{t=2}^{n}(e_t - e_{t-1})^2}{\sum_{t=1}^{n}e_t^2}$$
+
+toma valores entre 0 y 4: $d\approx 2$ sin autocorrelación, $d\approx 0$
+autocorrelación positiva, $d\approx 4$ negativa.
+
+```{r durbin-watson}
+if (hay("lmtest")) {
+  print(lmtest::dwtest(modelo))
+} else {
+  e <- residuals(modelo)
+  cat("Durbin-Watson d =", round(sum(diff(e)^2) / sum(e^2), 4), "\n")
+}
+```
+
+## ⚠️ Por qué aquí este resultado NO se debe interpretar
+
+$d = 1.27$ sugeriría autocorrelación positiva. **Pero el estadístico de
+Durbin-Watson depende del orden de las filas**, y en `trees` ese orden **no
+tiene significado sustantivo**: el archivo está ordenado por `Girth` creciente.
+Lo que DW está detectando es la **curvatura** que ya vimos en la sección 11 —
+residuos consecutivos parecidos porque siguen una U— y no una dependencia
+temporal.
+
+```{r dw-demostracion}
+set.seed(99)
+trees_barajado <- trees[sample(n), ]
+m_barajado <- lm(Volume ~ Girth + Height, data = trees_barajado)
+e1 <- residuals(modelo); e2 <- residuals(m_barajado)
+c(DW_orden_original = sum(diff(e1)^2)/sum(e1^2),
+  DW_orden_aleatorio = sum(diff(e2)^2)/sum(e2^2))
+```
+
+Reordenando las filas al azar el estadístico cambia por completo, y el modelo es
+**exactamente el mismo**. Eso demuestra que aquí DW no mide una propiedad del
+modelo sino un artefacto del orden del archivo.
+
+**Cuándo SÍ tiene sentido Durbin-Watson:** series de tiempo (observaciones
+indexadas por fecha), mediciones repetidas sobre el mismo sujeto, datos
+recogidos secuencialmente por un mismo operario o instrumento, o cualquier
+situación en la que exista un orden natural y real. En un corte transversal de
+árboles talados, no.
+
+> **Regla:** aplique DW solo si puede responder la pregunta *"¿qué significa que
+> la observación $i$ venga antes que la $i+1$?"*. Si no hay respuesta, no aplique
+> la prueba.
+
+---
+
+# 15. Multicolinealidad
+
+En regresión simple no existe. En regresión múltiple es un problema central, y
+por eso lo agregamos aunque no estuviera desarrollado en el material anterior.
+
+## Qué es y por qué aparece
+
+**Multicolinealidad** = las predictoras están (fuertemente) correlacionadas entre
+sí. Aparece porque:
+
+* miden aspectos relacionados del mismo fenómeno (peso y talla; ingreso y años de
+  educación; diámetro y altura de un árbol);
+* una es combinación casi exacta de otras (incluir gasto total *y* sus componentes);
+* el diseño del estudio no separó las variables (todos los árboles gruesos del
+  bosque resultaron ser también los altos).
+
+## Por qué produce coeficientes inestables
+
+La varianza del coeficiente $j$ es
+
+$$Var(\hat\beta_j) = \frac{\sigma^2}{\sum(x_{ij}-\bar x_j)^2}\cdot\underbrace{\frac{1}{1-R_j^2}}_{VIF_j}$$
+
+donde $R_j^2$ es el $R^2$ de regresar $X_j$ contra **las demás predictoras**. Si
+$R_j^2 \to 1$, el VIF explota y el error estándar con él. Intuitivamente: el
+coeficiente parcial de $X_j$ se estima con **la parte de $X_j$ que las otras no
+explican**; si esa parte es minúscula, se está estimando con casi nada de
+información.
+
+## Cálculo del VIF
+
+```{r vif}
+if (hay("car")) {
+  print(car::vif(modelo))
+} else {
+  vif_manual <- sapply(c("Girth", "Height"), function(v) {
+    otras <- setdiff(c("Girth", "Height"), v)
+    1 / (1 - summary(lm(reformulate(otras, response = v), data = trees))$r.squared)
+  })
+  print(round(vif_manual, 4))
+}
+```
+
+```{r vif-a-mano}
+# Con dos predictoras, VIF = 1/(1 - r^2)
+r_gh <- cor(trees$Girth, trees$Height)
+c(r = r_gh, r2 = r_gh^2, VIF = 1 / (1 - r_gh^2))
+```
+
+**Lectura.** $VIF = 1.37$ para ambas: `Height` explica solo el 27 % de la
+variabilidad de `Girth`. Sobra información independiente. **No hay problema de
+multicolinealidad** en este modelo.
+
+## Cómo interpretar el VIF (y cómo no)
+
+Se citan umbrales de 5 o de 10. **No son leyes.** Considere:
+
+* $\sqrt{VIF}$ dice **cuántas veces más ancho** es el error estándar por culpa de
+  la colinealidad. Con $VIF = 1.37$, $\sqrt{1.37} = 1.17$: un 17 % más ancho.
+  Irrelevante. Con $VIF = 10$, es 3.2 veces más ancho: eso sí se nota.
+* Un VIF alto **no invalida el modelo** si el objetivo es **predecir**: las
+  predicciones y sus intervalos siguen siendo correctos. Daña la **interpretación
+  de coeficientes individuales**.
+* Un VIF de 8 con errores estándar pequeños (porque $n$ es grande) puede ser
+  perfectamente tolerable; un VIF de 4 con $n=20$ puede arruinar el análisis. **El
+  VIF se lee junto al error estándar, no solo.**
+* Las variables *dummy* de un factor con muchos niveles y los términos
+  polinómicos o de interacción **siempre** tienen VIF alto por construcción. Eso
+  es estructural, no un problema (para ellos existe el VIF generalizado,
+  `car::vif()` con `type = "predictor"`).
+
+---
+
+# 16. Outlier, leverage e influencia: tres cosas distintas
+
+> $$\text{outlier} \neq \text{leverage} \neq \text{influencia}$$
+
+| Concepto | Qué es | Se mide con | Dónde es raro |
+|---|---|---|---|
+| **Outlier** | Valor inusual **en la respuesta**, dado el modelo. El modelo lo predice mal. | $\lvert r_i^{*}\rvert$ grande | Eje $Y$ |
+| **Leverage alto** | Valores inusuales **en las predictoras**. El modelo está obligado a prestarle atención. | $h_{ii}$ grande | Eje(s) $X$ |
+| **Observación influyente** | Su presencia **cambia el modelo**. Suele requerir *ambas* cosas a la vez. | Distancia de Cook | Efecto sobre $\hat\beta$ |
+
+La intuición geométrica: un punto con leverage alto es un niño en el extremo de
+un balancín. Si además está fuera de la recta (outlier), mueve el balancín
+entero. Si está **sobre** la recta, tiene mucho leverage y **cero influencia**.
+
+$$D_i = \frac{r_i^2}{p}\cdot\frac{h_{ii}}{1-h_{ii}}
+\qquad \leftarrow \text{residuo} \times \text{leverage}$$
+
+La fórmula **es** la afirmación: influencia = ser atípico **y** estar en una
+posición que importa.
+
+```{r outlier-leverage-influencia, fig.height=3.4}
+par(mfrow = c(1, 3), mar = c(4, 4, 3, 1))
+
+plot(rstudent(modelo), pch = 19, col = "steelblue", ylim = c(-3.5, 3.5),
+     main = "Outliers en la respuesta", xlab = "Índice", ylab = "Residuo studentizado")
+abline(h = 0); abline(h = c(-2, 2), lty = 2, col = "firebrick")
+text(which(abs(rstudent(modelo)) > 2), rstudent(modelo)[abs(rstudent(modelo)) > 2],
+     labels = which(abs(rstudent(modelo)) > 2), pos = 4, col = "firebrick")
+
+plot(hatvalues(modelo), pch = 19, col = "steelblue", ylim = c(0, max(hatvalues(modelo))*1.15),
+     main = "Leverage (h)", xlab = "Índice", ylab = "h")
+abline(h = umbral_h, lty = 2, col = "firebrick")
+text(which(hatvalues(modelo) > umbral_h), hatvalues(modelo)[hatvalues(modelo) > umbral_h],
+     labels = which(hatvalues(modelo) > umbral_h), pos = 2, col = "firebrick")
+
+plot(cooks.distance(modelo), type = "h", lwd = 2, col = "steelblue",
+     main = "Distancia de Cook", xlab = "Índice", ylab = "D")
+abline(h = umbral_cook, lty = 2, col = "firebrick")
+text(which.max(cooks.distance(modelo)), max(cooks.distance(modelo)),
+     labels = which.max(cooks.distance(modelo)), pos = 2, col = "firebrick")
+par(mfrow = c(1, 1))
+```
+
+```{r residuals-leverage, fig.height=4}
+plot(modelo, which = 5, pch = 19, col = "steelblue")
+```
+
+Este gráfico —**Residuals vs Leverage**— es el resumen: leverage en el eje
+horizontal, residuo estandarizado en el vertical, y las curvas punteadas rojas
+marcan contornos de distancia de Cook. Lo preocupante es la **esquina superior o
+inferior derecha**: residuo grande *y* leverage alto.
+
+```{r diagnostico-completo}
+diagnostico |>
+  mutate(
+    outlier    = abs(r_studentizado) > 2,
+    lev_alto   = leverage > umbral_h,
+    influyente = cook > umbral_cook
+  ) |>
+  filter(outlier | lev_alto | influyente) |>
+  select(obs, Girth, Height, observado, estimado,
+         r_studentizado, leverage, cook, outlier, lev_alto, influyente)
+```
+
+**Lectura de la tabla:**
+
+* **Obs. 20** ($Girth=13.8$, $Height=64$): leverage alto ($h = 0.211$) pero
+  residuo pequeño ($r^* = -1.11$) y Cook bajo ($0.108$). Es un árbol con una
+  combinación rara de predictoras —grueso y **bajo**—, pero el modelo lo predice
+  bien. **Leverage sin influencia.**
+* **Obs. 2, 3 y 18**: Cook por encima del umbral pero residuos y leverage
+  moderados. Casos limítrofes.
+* **Obs. 31** ($Girth=20.6$, $Height=87$, $Volume=77$): el árbol más grande del
+  conjunto. $h = 0.227$ (el mayor), $r^* = 2.77$ (el mayor) y
+  $D = 0.605$, **tres veces** el segundo valor más alto. **Este es el caso serio.**
+
+```{r comparacion-reglas}
+# Las reglas de referencia NO coinciden entre sí. Son orientación, no veredicto.
+data.frame(
+  regla = c("D > 4/(n-p)", "D > 4/n", "D > 1", "D > 3*media(D)"),
+  umbral = c(4/(n-p), 4/n, 1, 3*mean(cooks.distance(modelo))),
+  marcadas = sapply(c(4/(n-p), 4/n, 1, 3*mean(cooks.distance(modelo))),
+                    function(u) paste(which(cooks.distance(modelo) > u), collapse = ", "))
+)
+```
+
+Según la regla elegida, "las observaciones influyentes" son cuatro, cuatro,
+ninguna o una. **Ningún umbral es la verdad.** Lo que sí es informativo es la
+**separación relativa**: la observación 31 está sola, muy por encima de todas las
+demás, con cualquier criterio.
+
+---
+
+# 17. Análisis de sensibilidad
+
+La pregunta no es *"¿hay observaciones influyentes?"* sino **"¿cambia mi
+conclusión si no estuvieran?"**. Eso se responde ajustando el modelo sin ellas y
+comparando.
+
+```{r sensibilidad}
+modelo_sin31 <- lm(Volume ~ Girth + Height, data = trees[-31, ])
+
+comparar <- function(m1, m2, n1 = "Con obs. 31", n2 = "Sin obs. 31") {
+  f <- function(m) c(
+    Intercepto   = unname(coef(m)[1]),
+    Girth        = unname(coef(m)[2]),
+    ee_Girth     = summary(m)$coefficients[2, 2],
+    p_Girth      = summary(m)$coefficients[2, 4],
+    Height       = unname(coef(m)[3]),
+    ee_Height    = summary(m)$coefficients[3, 2],
+    p_Height     = summary(m)$coefficients[3, 4],
+    R2_ajustado  = summary(m)$adj.r.squared,
+    sigma        = summary(m)$sigma
+  )
+  out <- rbind(f(m1), f(m2))
+  rownames(out) <- c(n1, n2)
+  out <- rbind(out, "Cambio %" = 100 * (out[2, ] - out[1, ]) / abs(out[1, ]))
+  round(t(out), 4)
+}
+comparar(modelo, modelo_sin31)
+```
+
+```{r sensibilidad-predicciones}
+# ¿Cambian las predicciones?
+data.frame(
+  arboles_nuevos,
+  con_obs31 = round(predict(modelo,       arboles_nuevos), 3),
+  sin_obs31 = round(predict(modelo_sin31, arboles_nuevos), 3)
+) |> mutate(diferencia = round(sin_obs31 - con_obs31, 3),
+            dif_pct    = round(100 * (sin_obs31 - con_obs31) / con_obs31, 2))
+```
+
+## ¿Cambió sustancialmente la conclusión?
+
+**No.** Al quitar la observación 31:
+
+* El coeficiente de `Girth` baja de $4.708$ a $4.478$ (−4.9 %), y el nuevo valor
+  sigue **dentro del IC 95 % del modelo original** ($[4.167, 5.250]$).
+* El de `Height` baja de $0.339$ a $0.299$ (−11.8 %), y sigue siendo significativo
+  ($p = 0.017$ frente a $p = 0.015$).
+* El $R^2$ ajustado baja levemente ($0.9442 \to 0.9395$) y $\hat\sigma$ mejora
+  ($3.882 \to 3.490$), lo esperable al retirar el punto peor predicho.
+* Las predicciones se mueven **menos de 2 pies³** en el rango típico.
+
+**Conclusión sustantiva:** la observación 31 es el punto que más tira del modelo,
+pero **el modelo no depende de ella**. Ninguna decisión cambiaría. Por lo tanto
+**la conservamos**.
+
+## ⚠️ Lo que NO se debe hacer
+
+> **Nunca elimine una observación automáticamente porque tenga Cook alto,
+> leverage alto o residuo grande.** Esos estadísticos son **señales para
+> investigar**, no veredictos.
+
+Antes de siquiera considerar una exclusión hay que preguntarse:
+
+1. **¿Es un error de digitación?** ¿Volumen 77 o 7.7? ¿La coma se corrió?
+   → Si se puede, se corrige; no se borra.
+2. **¿Es un error de medición?** ¿El instrumento estaba descalibrado ese día?
+   → Se documenta y se corrige o se excluye **con justificación registrada**.
+3. **¿Es un caso válido pero excepcional?** Este árbol de 20.6 pulgadas es
+   perfectamente real: es simplemente el más grande de la muestra.
+   → **Se conserva.** Es información legítima, y a menudo la más valiosa.
+4. **¿Pertenece a otra población?** ¿Es de otra especie, otro sitio, otro
+   régimen? → Se separa el análisis, no se borra el dato.
+5. **¿La estructura del modelo es insuficiente?** Si un solo punto "no encaja",
+   quizá el problema no es el punto sino la forma funcional.
+   → **Este es justamente nuestro caso** (véase la sección siguiente).
+
+Y si, tras todo eso, se excluye una observación: **se reporta**, se explica por
+qué, y se muestran los resultados **con y sin** ella. Un análisis que esconde una
+exclusión no es reproducible.
+
+---
+
+# 18. ¿Qué hacer cuando no se cumplen los supuestos?
+
+No basta con decir *"el supuesto no se cumple"*. Hay que **detectar, entender y
+tratar**, y luego **volver a diagnosticar**.
+
+## Tabla de decisión
+
+| Problema | Cómo detectarlo | Posibles causas | Posibles tratamientos |
+|---|---|---|---|
+| **No linealidad** | Residuos vs. ajustados con curvatura; gráficos parciales con forma; loess no horizontal | Forma funcional incorrecta; variable omitida; relación multiplicativa | Transformar $X$ ($\log X$, $\sqrt X$, $X^2$); términos polinómicos; transformar $Y$; incluir la variable faltante; replantear el modelo (GAM, splines) |
+| **Heterocedasticidad** | Embudo en residuos vs. ajustados; Scale-Location creciente; Breusch-Pagan significativo | $Y$ es un conteo, monto o concentración; efecto multiplicativo; varianza que crece con la media | Transformar $Y$ ($\log Y$, $\sqrt Y$); **errores estándar robustos** (HC); mínimos cuadrados ponderados; modelos GLM (Poisson, Gamma) |
+| **No normalidad** | Q-Q plot con colas desviadas; histograma asimétrico; Shapiro-Wilk significativo | Outliers; asimetría de $Y$; modelo mal especificado; $Y$ discreta o acotada | Revisar outliers primero; transformar; considerar el tamaño muestral (TLC); revisar la especificación; GLM si $Y$ no es continua |
+| **Dependencia** | DW lejos de 2 **con orden con sentido**; ACF de residuos; patrón por grupo | Serie de tiempo; medidas repetidas; conglomerados (colegio, municipio, operario) | Modelos con estructura de correlación (AR); errores estándar por conglomerado; modelos mixtos |
+| **Influencia** | Cook alto; leverage alto; Residuals vs Leverage | Error de datos; caso excepcional; población distinta; modelo insuficiente | **Verificar el dato**; análisis de sensibilidad; comparar con y sin; regresión robusta; justificar toda exclusión |
+| **Multicolinealidad** | VIF alto; correlaciones altas entre predictoras; coeficientes con signo "imposible"; EE enormes con $R^2$ alto | Variables redundantes; muestra pequeña; diseño no separó las variables | Conocimiento del dominio; retirar una redundante **con justificación**; combinar variables en un índice; centrar (para polinomios/interacciones); regularización (ridge/lasso) **como extensión** |
+
+## Aplicándolo a `trees`: tratamos la no linealidad
+
+Nuestro diagnóstico detectó **un** problema real: curvatura. Y tenemos una teoría
+sobre su origen. Un árbol se parece a un cilindro o a un cono:
+
+$$V = \pi\left(\frac{d}{2}\right)^2 h \cdot c
+\qquad\Longrightarrow\qquad
+V \propto d^2\,h$$
+
+Esto **no** es aditivo, es **multiplicativo**. Y un modelo multiplicativo se
+vuelve lineal tomando logaritmos:
+
+$$\log V = \log c' + 2\log d + 1\log h + \epsilon$$
+
+**Predicción teórica antes de ajustar:** el coeficiente de $\log(Girth)$ debería
+salir cerca de **2** y el de $\log(Height)$ cerca de **1**.
+
+```{r modelo-log}
+modelo_log <- lm(log(Volume) ~ log(Girth) + log(Height), data = trees)
+summary(modelo_log)
+```
+
+```{r modelo-log-ic}
+confint(modelo_log)
+```
+
+**El resultado es notable:**
+
+| Coeficiente | Estimación | IC 95 % | Valor teórico | ¿Compatible? |
+|---|---|---|---|---|
+| $\log(Girth)$ | $1.983$ | $[1.829,\ 2.136]$ | $2$ | ✅ el IC contiene 2 |
+| $\log(Height)$ | $1.117$ | $[0.698,\ 1.536]$ | $1$ | ✅ el IC contiene 1 |
+
+Los datos **recuperan la geometría del sólido**. Esto es lo que se ve cuando un
+modelo está bien especificado: los coeficientes dejan de ser números arbitrarios
+y adquieren significado sustantivo.
+
+## Volver a diagnosticar
+
+```{r diagnostico-log, fig.height=6}
+par(mfrow = c(2, 2))
+plot(modelo_log, pch = 19, col = "steelblue")
+par(mfrow = c(1, 1))
+```
+
+```{r diagnostico-log-tests}
+shapiro.test(rstudent(modelo_log))
+if (hay("lmtest")) print(lmtest::bptest(modelo_log))
+c(cook_maximo = max(cooks.distance(modelo_log)),
+  obs = which.max(cooks.distance(modelo_log)),
+  leverage_maximo = max(hatvalues(modelo_log)))
+```
+
+**La curvatura desapareció.** Los residuos vs. ajustados ahora son una nube sin
+forma. Normalidad ($p = 0.278$) y homocedasticidad ($p = 0.256$) sin problemas.
+Y la distancia de Cook máxima bajó de $0.605$ (obs. 31) a $0.224$ (obs. 18): **el
+punto influyente dejó de serlo**.
+
+> 🎯 **Esta es la lección más importante de la clase.** La observación 31 no era
+> un dato malo. Era el dato que más claramente delataba que el **modelo** estaba
+> mal especificado. Al corregir la forma funcional, el "problema" se disolvió
+> solo. **Antes de sospechar del dato, sospeche del modelo.**
+
+## Interpretación del modelo log-log
+
+En un modelo log-log los coeficientes son **elasticidades**:
+
+$$\hat\beta_j = \frac{\%\,\text{de cambio en } Y}{\%\,\text{de cambio en } X_j}$$
+
+* **$\log(Girth) = 1.983$:** a igual altura, un **1 % más de diámetro** se asocia
+  con un **1.98 % más de volumen**. (Un 10 % más de diámetro ≈ 21 % más de
+  volumen: $1.10^{1.983} = 1.21$.)
+* **$\log(Height) = 1.117$:** a igual diámetro, un 1 % más de altura ≈ 1.12 %
+  más de volumen.
+
+```{r comparacion-rmse}
+# Comparación en la ESCALA ORIGINAL (única comparación justa entre los dos modelos)
+pred_lineal <- fitted(modelo)
+pred_log    <- exp(fitted(modelo_log))              # se deshace la transformación
+
+data.frame(
+  modelo = c("Lineal: Volume ~ Girth + Height", "Log-log: log(V) ~ log(G) + log(H)"),
+  RMSE_pies3 = round(c(sqrt(mean((trees$Volume - pred_lineal)^2)),
+                       sqrt(mean((trees$Volume - pred_log)^2))), 4),
+  EAM_pies3  = round(c(mean(abs(trees$Volume - pred_lineal)),
+                       mean(abs(trees$Volume - pred_log))), 4)
+)
+```
+
+El error de predicción baja de **3.69** a **2.42** pies³: una mejora del 35 %.
+
+> ⚠️ **No compare los $R^2$ de estos dos modelos.** Uno explica la variabilidad
+> de `Volume` y el otro la de `log(Volume)`: son variables respuesta distintas y
+> los $R^2$ **no son comparables**. La comparación válida es en la escala
+> original, como arriba.
+
+## El ciclo completo
+
+$$\textbf{MODELO} \rightarrow \textbf{DIAGNÓSTICO} \rightarrow \textbf{TRATAMIENTO} \rightarrow \textbf{NUEVO MODELO} \rightarrow \textbf{NUEVO DIAGNÓSTICO}$$
+
+En nuestro caso:
+
+1. **Modelo:** `Volume ~ Girth + Height`. $R^2 = 0.948$, todo significativo.
+2. **Diagnóstico:** curvatura en los residuos; obs. 31 influyente.
+3. **Tratamiento:** teoría del sólido → transformación logarítmica de todo.
+4. **Nuevo modelo:** `log(Volume) ~ log(Girth) + log(Height)`. Coeficientes
+   ≈ 2 y ≈ 1, coherentes con la geometría.
+5. **Nuevo diagnóstico:** residuos sin patrón, supuestos en orden, sin puntos
+   influyentes, RMSE 35 % menor. **Aquí paramos.**
+
+---
+
+# 19. Variables categóricas como predictoras
+
+Hasta ahora todas las predictoras eran numéricas. ¿Qué pasa si una es una
+categoría (sexo, región, tipo de suelo, presencia de piscina)?
+
+## Datos de ejemplo
+
+Conjunto pequeño y **didáctico** (construido para esta clase) sobre precios de
+vivienda: `Precio` en millones, `Area` en m², y `Piscina` con tres niveles.
+
+```{r categoricas-datos}
+viviendas <- data.frame(
+  Precio  = c(105, 112, 134, 137, 141, 164, 166, 176, 175, 191, 190, 200, 245, 227, 270),
+  Area    = c( 60,  72,  85,  78,  95, 102,  88, 110, 125, 105, 130, 140, 148, 160, 170),
+  Piscina = c("Sin","Sin","Sin","Pequena","Sin","Pequena","Grande","Pequena",
+              "Sin","Grande","Pequena","Sin","Grande","Pequena","Grande")
+)
+viviendas$Piscina <- factor(viviendas$Piscina, levels = c("Sin", "Pequena", "Grande"))
+str(viviendas)
+table(viviendas$Piscina)
+```
+
+## Por qué NO se codifica 1, 2, 3
+
+La tentación es reemplazar `Sin → 1`, `Pequena → 2`, `Grande → 3` y meterla como
+numérica. **Eso impone dos supuestos falsos**:
+
+1. Que las categorías están **ordenadas** (¿lo están? aquí quizá; ¿y con
+   "Bogotá, Medellín, Cali"?).
+2. Que los **saltos son iguales**: pasar de *Sin* a *Pequeña* valdría exactamente
+   lo mismo que pasar de *Pequeña* a *Grande*. Eso es una restricción impuesta
+   por el analista, no por los datos.
+
+```{r categoricas-mala-practica}
+viviendas$Cod <- as.numeric(viviendas$Piscina)   # 1, 2, 3  -- NO HACER ESTO
+m_malo  <- lm(Precio ~ Area + Cod,     data = viviendas)
+m_bueno <- lm(Precio ~ Area + Piscina, data = viviendas)
+
+data.frame(
+  enfoque = c("Codificación 1-2-3 (incorrecta)", "Variables dummy (correcta)"),
+  parametros  = c(length(coef(m_malo)), length(coef(m_bueno))),
+  sigma       = round(c(summary(m_malo)$sigma, summary(m_bueno)$sigma), 3),
+  R2_ajustado = round(c(summary(m_malo)$adj.r.squared, summary(m_bueno)$adj.r.squared), 4)
+)
+```
+
+El modelo correcto tiene un error residual **menor** ($4.01$ vs. $5.38$) pese a
+gastar un parámetro más: los saltos reales **no** son iguales, y forzarlos a
+serlo cuesta ajuste.
+
+## Cómo funcionan las variables dummy
+
+Con $m$ niveles se crean $m-1$ variables indicadoras y un nivel queda como
+**referencia** (aquí `Sin`, por ser el primer nivel del factor). R lo hace
+automáticamente con `lm()`:
+
+```{r categoricas-matriz-diseno}
+head(model.matrix(m_bueno), 8)
+```
+
+Cada fila tiene un 1 en la columna de su categoría y 0 en las demás; las
+viviendas *Sin* piscina tienen 0 en ambas dummies —son el punto de partida.
+
+```{r categoricas-modelo}
+summary(m_bueno)
+```
+
+## Interpretación
+
+$$\widehat{Precio} = 31.22 + 1.178\,Area + 10.94\,\mathbb{1}[Pequena] + 36.30\,\mathbb{1}[Grande]$$
+
+* **`Area` = 1.178:** cada m² adicional agrega 1.18 millones **a igual tipo de
+  piscina**.
+* **`PiscinaPequena` = 10.94:** comparando dos viviendas **de la misma área**,
+  una con piscina pequeña vale en promedio **10.94 millones más** que una sin
+  piscina. **El coeficiente es una diferencia respecto a la referencia**, no un
+  valor absoluto.
+* **`PiscinaGrande` = 36.30:** misma lectura. Nótese que $36.30 \neq 2\times10.94$:
+  los saltos **no** son iguales, exactamente lo que la codificación 1-2-3 habría
+  impuesto por la fuerza.
+* El intercepto ($31.22$) es el precio estimado de una vivienda de $0$ m² **sin**
+  piscina: la referencia queda absorbida en el intercepto.
+
+Geométricamente: **tres rectas paralelas** (misma pendiente en `Area`, distinto
+intercepto según la piscina).
+
+```{r categoricas-grafico, fig.height=4}
+ggplot(viviendas, aes(Area, Precio, colour = Piscina)) +
+  geom_point(size = 3) +
+  geom_line(aes(y = fitted(m_bueno)), linewidth = 1) +
+  labs(title = "Variables dummy: tres rectas paralelas",
+       subtitle = "Mismo efecto de Area; distinto intercepto por categoría",
+       x = "Área (m²)", y = "Precio (millones)")
+```
+
+## Cambiar la categoría de referencia
+
+La elección de la referencia **no cambia el modelo** (mismos ajustados, mismo
+$R^2$, misma $F$); solo cambia **con quién se compara** cada coeficiente.
+
+```{r categoricas-referencia}
+viviendas$Piscina2 <- relevel(viviendas$Piscina, ref = "Grande")
+m_ref <- lm(Precio ~ Area + Piscina2, data = viviendas)
+round(coef(m_ref), 4)
+c(R2_original = summary(m_bueno)$r.squared, R2_nueva_ref = summary(m_ref)$r.squared)
+```
+
+## La prueba correcta para un factor
+
+Para preguntar *"¿importa la piscina?"* **no** se miran las $t$ individuales de
+las dummies —eso son comparaciones por pares. Se compara el modelo con y sin el
+factor completo:
+
+```{r categoricas-anova}
+anova(lm(Precio ~ Area, data = viviendas), m_bueno)
+```
+
+$F = 85.2$ con 2 y 11 gl, $p < 0.001$: el factor `Piscina` en conjunto aporta.
+
+---
+
+# 20. Interacciones (introducción)
+
+Hasta ahora los efectos eran **aditivos**: el efecto de $X_1$ era el mismo
+cualquiera fuese el valor de $X_2$. A veces eso es falso.
+
+$$Y = \beta_0 + \beta_1X_1 + \beta_2X_2 + \beta_3X_1X_2 + \epsilon$$
+
+Reagrupando:
+
+$$Y = \beta_0 + \underbrace{(\beta_1 + \beta_3X_2)}_{\text{efecto de } X_1}X_1 + \beta_2X_2 + \epsilon$$
+
+> **El efecto de una variable depende del valor de la otra.**
+
+En `trees` esto tiene sentido físico: si $V \propto d^2h$, el efecto de un pie
+más de altura **es mayor en un árbol grueso** que en uno delgado.
+
+```{r interaccion}
+modelo_inter <- lm(Volume ~ Girth * Height, data = trees)   # = Girth + Height + Girth:Height
+summary(modelo_inter)
+```
+
+El término `Girth:Height` es altamente significativo ($p < 0.001$), confirmando
+que los efectos **no** son aditivos.
+
+```{r interaccion-efectos}
+b <- coef(modelo_inter)
+data.frame(
+  Height = c(65, 76, 87),
+  efecto_de_Girth = round(b["Girth"] + b["Girth:Height"] * c(65, 76, 87), 3)
+)
+```
+
+En un árbol de 65 pies, una pulgada más de diámetro vale $\approx 2.9$ pies³; en
+uno de 87 pies, vale $\approx 5.9$ pies³: **más del doble**.
+
+```{r interaccion-grafico, fig.height=4}
+malla_i <- expand.grid(Girth = seq(8, 21, length.out = 50), Height = c(65, 76, 87))
+malla_i$pred <- predict(modelo_inter, malla_i)
+ggplot(malla_i, aes(Girth, pred, colour = factor(Height))) +
+  geom_line(linewidth = 1) +
+  labs(title = "Interacción: las pendientes ya no son paralelas",
+       colour = "Height", x = "Girth", y = "Volume estimado")
+```
+
+**Advertencias para la clase siguiente:**
+
+* Si se incluye `X1:X2`, se deben mantener `X1` y `X2` (principio de jerarquía),
+  aunque sus $p$ individuales sean grandes.
+* Con interacción, el coeficiente de `Girth` ya **no** es "el efecto de Girth":
+  es el efecto cuando `Height = 0`, que aquí no significa nada. **Centrar** las
+  predictoras devuelve la interpretabilidad.
+* Los términos de interacción tienen VIF alto por construcción; eso es estructural.
+* Nótese que el modelo log-log capturaba la misma idea de forma más limpia
+  (log convierte el producto en suma) y con supuestos mejor cumplidos.
+
+---
+
+# 21. Comparación de modelos
+
+```{r comparacion-modelos}
+M0 <- lm(Volume ~ 1,              data = trees)
+M1 <- lm(Volume ~ Girth,          data = trees)
+M2 <- lm(Volume ~ Height,         data = trees)
+M3 <- lm(Volume ~ Girth + Height, data = trees)
+M4 <- lm(log(Volume) ~ log(Girth) + log(Height), data = trees)
+
+rmse_original <- function(m, log_escala = FALSE) {
+  pred <- if (log_escala) exp(fitted(m)) else fitted(m)
+  sqrt(mean((trees$Volume - pred)^2))
+}
+
+data.frame(
+  modelo = c("M0: Volume ~ 1", "M1: Volume ~ Girth", "M2: Volume ~ Height",
+             "M3: Volume ~ Girth + Height", "M4: log(V) ~ log(G) + log(H)"),
+  k_predictoras = c(0, 1, 1, 2, 2),
+  R2      = round(c(summary(M0)$r.squared, summary(M1)$r.squared, summary(M2)$r.squared,
+                    summary(M3)$r.squared, summary(M4)$r.squared), 4),
+  R2_aj   = round(c(summary(M0)$adj.r.squared, summary(M1)$adj.r.squared, summary(M2)$adj.r.squared,
+                    summary(M3)$adj.r.squared, summary(M4)$adj.r.squared), 4),
+  sigma   = round(c(summary(M0)$sigma, summary(M1)$sigma, summary(M2)$sigma,
+                    summary(M3)$sigma, summary(M4)$sigma), 4),
+  AIC     = round(c(AIC(M0), AIC(M1), AIC(M2), AIC(M3), AIC(M4)), 2),
+  RMSE_pies3 = round(c(rmse_original(M0), rmse_original(M1), rmse_original(M2),
+                       rmse_original(M3), rmse_original(M4, log_escala = TRUE)), 4)
+)
+```
+
+```{r comparacion-anidados}
+anova(M0, M1, M3)      # modelos anidados: cada paso añade una variable
+```
+
+## Cómo leer esta tabla
+
+* **M0 (nulo)** es la línea de base: predecir siempre 30.17 pies³. $\hat\sigma$
+  es la desviación estándar de `Volume`.
+* **M1 (solo `Girth`)** explica el 93.5 %: el diámetro solo ya hace casi todo el
+  trabajo. La prueba $F$ contra M0 es abrumadora.
+* **M2 (solo `Height`)** explica el 35.8 %: mucho peor. La altura sola es un
+  predictor pobre.
+* **M3** añade `Height` a M1 y gana $1.3$ puntos de $R^2$ ($p = 0.0145$). Ganancia
+  real pero **modesta**.
+* **M4 (log-log)** es el mejor en la escala original (RMSE $2.41$) y el único con
+  supuestos cumplidos. Su AIC no es comparable con los demás (respuesta distinta).
+
+## ⚠️ Los $R^2$, los AIC y las cifras no deciden solos
+
+**No elija un modelo solo porque tenga el $R^2$ más alto.** Criterios que deben
+pesar tanto o más:
+
+1. **¿Se cumplen los supuestos?** Un modelo con $R^2 = 0.95$ y residuos curvados
+   es peor que uno con $R^2 = 0.93$ y residuos limpios: el primero se equivoca de
+   forma **sistemática**, y eso no se arregla con más datos.
+2. **¿Tienen sentido los coeficientes?** Un coeficiente con signo imposible es
+   una alarma, aunque el ajuste sea excelente.
+3. **¿Para qué es el modelo?** Si es para **predecir**, comparar RMSE (idealmente
+   fuera de muestra, con validación cruzada). Si es para **entender**, importan
+   la interpretabilidad y la estabilidad de los coeficientes.
+4. **¿Es parsimonioso?** Entre dos modelos equivalentes, el más simple gana.
+5. **Comparabilidad.** AIC/BIC solo se comparan entre modelos con **la misma
+   variable respuesta** y ajustados con **los mismos datos**.
+
+**Decisión para `trees`:** nos quedamos con **M4**, el modelo log-log. Ajusta
+mejor, cumple los supuestos, no tiene puntos influyentes y sus coeficientes
+recuperan la geometría del problema.
+
+---
+
+# 22. Sincronización R ↔ Python
+
+Los materiales de esta clase (`.Rmd`, `.R`, `.ipynb`) siguen la misma secuencia y
+el mismo archivo `trees.csv`. Los resultados numéricos **coinciden**. Esta tabla
+es la referencia de equivalencias.
+
+## Equivalencias de funciones
+
+| Tarea | R | Python |
+|---|---|---|
+| Leer datos | `read.csv("trees.csv")` | `pd.read_csv("trees.csv")` |
+| Estructura | `str(df)` | `df.info()` |
+| Descriptivos | `summary(df)` | `df.describe()` |
+| Correlaciones | `cor(df)` | `df.corr()` |
+| Matriz de dispersión | `GGally::ggpairs(df)` / `pairs(df)` | `sns.pairplot(df)` |
+| **Ajustar el modelo** | `lm(y ~ x1 + x2, data = d)` | `smf.ols("y ~ x1 + x2", data=d).fit()` |
+| Resumen | `summary(m)` | `m.summary()` |
+| Coeficientes | `coef(m)` | `m.params` |
+| Errores estándar | `summary(m)$coefficients[,2]` | `m.bse` |
+| Estadísticos $t$ / $p$ | `summary(m)$coefficients[,3:4]` | `m.tvalues` / `m.pvalues` |
+| Intervalos de confianza | `confint(m)` | `m.conf_int()` |
+| $R^2$ / $R^2$ ajustado | `summary(m)$r.squared` / `$adj.r.squared` | `m.rsquared` / `m.rsquared_adj` |
+| $\hat\sigma$ | `summary(m)$sigma` | `np.sqrt(m.mse_resid)` |
+| Estadístico $F$ global | `summary(m)$fstatistic` | `m.fvalue`, `m.f_pvalue` |
+| Tabla ANOVA | `anova(m)` | `sm.stats.anova_lm(m, typ=1)` |
+| Comparar modelos anidados | `anova(m1, m2)` | `sm.stats.anova_lm(m1, m2)` |
+| AIC | `AIC(m)` | `m.aic` |
+| Ajustados | `fitted(m)` | `m.fittedvalues` |
+| Residuos ordinarios | `residuals(m)` | `m.resid` |
+| Residuos estandarizados | `rstandard(m)` | `infl.resid_studentized_internal` |
+| Residuos studentizados | `rstudent(m)` | `infl.resid_studentized_external` |
+| Leverage | `hatvalues(m)` | `infl.hat_matrix_diag` |
+| Distancia de Cook | `cooks.distance(m)` | `infl.cooks_distance[0]` |
+| Objeto de influencia | (integrado) | `infl = m.get_influence()` |
+| Q-Q plot | `qqnorm()` + `qqline()` | `sm.qqplot(resid, line="q")` |
+| Shapiro-Wilk | `shapiro.test(r)` | `scipy.stats.shapiro(r)` |
+| Breusch-Pagan | `lmtest::bptest(m)` | `het_breuschpagan(m.resid, m.model.exog)` |
+| Durbin-Watson | `lmtest::dwtest(m)` | `durbin_watson(m.resid)` (sin p-valor) |
+| VIF | `car::vif(m)` | `variance_inflation_factor(X.values, i)` |
+| Predicción puntual | `predict(m, newdata)` | `m.predict(newdata)` |
+| IC + IP | `predict(m, nd, interval="confidence"/"prediction")` | `m.get_prediction(nd).summary_frame()` |
+| Variable categórica | factor automático en `lm()` | `C(var)` o `C(var, Treatment(reference="..."))` |
+| Matriz de diseño | `model.matrix(m)` | `m.model.exog` / `patsy.dmatrix` |
+| Interacción | `y ~ x1 * x2` | `"y ~ x1 * x2"` |
+
+## Diferencias que hay que conocer
+
+1. **Índices.** R indexa desde **1**; Python desde **0**. La observación
+   "número 31" de R es el índice **30** en `pandas`. Todas las tablas de
+   diagnóstico de esta clase usan una columna `obs` de 1 a 31 para que ambos
+   materiales hablen el mismo idioma.
+2. **Breusch-Pagan.** `lmtest::bptest()` usa por defecto la versión
+   **studentizada (Koenker)**, que es exactamente la que devuelve
+   `het_breuschpagan()` de `statsmodels`. **Coinciden** ($BP = 2.4681$,
+   $p = 0.2911$). Si usa `bptest(m, studentize = FALSE)` obtendrá $1.7375$, que
+   es la versión original —no compare peras con manzanas.
+3. **Durbin-Watson.** `statsmodels.stats.stattools.durbin_watson()` devuelve
+   **solo el estadístico**; `lmtest::dwtest()` devuelve además el p-valor.
+4. **`anova()`.** En R es secuencial (tipo I) por defecto; en `statsmodels`,
+   `anova_lm(m, typ=1)` replica ese comportamiento. Con `typ=2` o `typ=3` los
+   números cambian.
+5. **`summary()` vs `.summary()`.** El de `statsmodels` incluye de entrada
+   Durbin-Watson, Jarque-Bera, asimetría, curtosis y número de condición, que en
+   R hay que pedir aparte.
+6. **La columna índice del CSV.** `trees.csv` trae una primera columna sin
+   nombre con los números de fila. En R aparece como `X`; en Python como
+   `Unnamed: 0`. **Hay que eliminarla en ambos lados** o entrará como predictora.
+7. **Categóricas.** R convierte un `character` a factor automáticamente dentro de
+   `lm()`. `statsmodels` también con fórmulas, pero es mejor ser explícito con
+   `C(var)`; con `sklearn` hay que codificar a mano.
+8. **`sklearn` vs `statsmodels`.** `sklearn.linear_model.LinearRegression` ajusta
+   el mismo modelo pero **no da errores estándar, ni $t$, ni $p$, ni intervalos**:
+   está pensado para predicción, no para inferencia. Para esta clase, use
+   **`statsmodels`**.
+
+## Resultados que deben coincidir (control de calidad)
+
+Si sus números difieren de estos, algo está mal en la lectura de datos:
+
+| Cantidad | Valor |
+|---|---|
+| $\hat\beta_0$ | $-57.9877$ |
+| $\hat\beta_{Girth}$ | $4.7082$ |
+| $\hat\beta_{Height}$ | $0.3393$ |
+| $R^2$ | $0.9480$ |
+| $R^2$ ajustado | $0.9442$ |
+| $\hat\sigma$ | $3.8818$ |
+| $F(2,28)$ | $254.97$ |
+| $SCE$ | $421.9214$ |
+| Shapiro-Wilk ($r^{*}$) | $W=0.9732$, $p=0.6122$ |
+| Breusch-Pagan | $2.4681$, $p=0.2911$ |
+| VIF | $1.3692$ |
+| Cook máx. (obs. 31) | $0.6052$ |
+
+---
+
+# 23. Ejercicios propuestos
+
+**E1 (nivelación).** Ajuste `Volume ~ Height`. Interprete la pendiente. Luego
+ajuste `Volume ~ Girth + Height` y compare el coeficiente de `Height` en ambos.
+¿Aumentó o disminuyó? Explique por qué usando el argumento de la sección 3.
+
+**E2 (efecto parcial).** Repita el procedimiento de Frisch-Waugh-Lovell de la
+sección 3 pero para `Height` (regrese `Height` contra `Girth`, y `Volume` contra
+`Girth`, y cruce los residuos). Verifique que obtiene $0.3393$.
+
+**E3 (ANOVA).** Construya la tabla ANOVA a mano para el modelo `Volume ~ Girth`.
+Verifique que $F = t^2$ donde $t$ es el estadístico de la pendiente.
+
+**E4 (predicción).** Un ingeniero forestal mide un árbol de $Girth = 19$ pulgadas
+y $Height = 85$ pies. Dé la predicción con el modelo lineal y con el log-log.
+¿Cuál reportaría y con qué intervalo? Justifique.
+
+**E5 (extrapolación).** Prediga el volumen de un árbol con $Girth = 25$,
+$Height = 90$. ¿Confía en el resultado? ¿Por qué?
+
+**E6 (diagnóstico).** Ajuste `Volume ~ Girth` (solo diámetro) y haga el
+diagnóstico completo. ¿El problema de curvatura es peor o mejor que en el modelo
+con dos predictoras? ¿Qué le dice eso?
+
+**E7 (influencia).** Identifique la observación más influyente del modelo log-log
+y haga el análisis de sensibilidad correspondiente. ¿Cambia alguna conclusión?
+
+**E8 (transformación alternativa).** Ajuste `Volume ~ I(Girth^2 * Height)`
+—una sola predictora construida a partir de la teoría del cono. Compare su RMSE
+con los de M3 y M4. Discuta.
+
+**E9 (categóricas).** En el conjunto `viviendas`, cambie la referencia a
+`Pequena` y reinterprete los tres coeficientes. Verifique que los valores
+ajustados son idénticos.
+
+**E10 (interacción).** Ajuste `Precio ~ Area * Piscina` en `viviendas`.
+¿Qué significaría que la interacción fuera significativa? Dibuje las rectas.
+
+**E11 (aplicado).** Tome un conjunto de datos de su interés profesional con una
+respuesta continua y al menos dos predictoras. Recorra el ciclo completo:
+pregunta → datos → modelo → resultados → diagnóstico → decisión. Entregue un
+`.Rmd` o `.ipynb` reproducible con una conclusión de máximo un párrafo dirigida a
+alguien que no sabe estadística.
+
+---
+
+# 24. Glosario rápido
+
+| Término | Definición operativa |
+|---|---|
+| **Coeficiente parcial** | Cambio promedio en $Y$ por unidad de $X_j$ **con las demás predictoras del modelo fijas**. |
+| **$R^2$** | $1 - SCE/SCT$. Proporción de variabilidad de $Y$ explicada. Nunca baja al agregar predictoras. |
+| **$R^2$ ajustado** | $R^2$ penalizado por el número de parámetros. Puede bajar. Úselo para comparar modelos con distinto $k$. |
+| **$\hat\sigma$ (RSE)** | Desviación típica de los residuos, en unidades de $Y$. Interpretable. |
+| **Leverage $h_{ii}$** | Cuánto pesa $y_i$ en su propio ajustado. Depende **solo** de las $X$. Suma $= p$; promedio $= p/n$. |
+| **Residuo studentizado** | Residuo en escala comparable, con $\sigma$ estimado sin esa observación. Sigue una $t_{n-p-1}$. |
+| **Distancia de Cook** | Cuánto se mueven **todos** los ajustados si se quita la observación $i$. Combina residuo y leverage. |
+| **VIF** | $1/(1-R_j^2)$. Factor por el que se infla la **varianza** del coeficiente $j$ por colinealidad. $\sqrt{VIF}$ infla el error estándar. |
+| **Intervalo de confianza** | Para la **media** de $Y$ en $x_0$. Se angosta con $n$. |
+| **Intervalo de predicción** | Para **una observación** en $x_0$. Siempre más ancho; tiene piso $\approx\pm1.96\hat\sigma$. |
+| **Homocedasticidad** | Varianza del error constante a lo largo de los ajustados. |
+| **Elasticidad** | En modelos log-log, el coeficiente es el % de cambio en $Y$ por 1 % de cambio en $X$. |
+
+---
+
+# 25. Referencias
+
+* Montgomery, D. C., Peck, E. A. & Vining, G. G. (2021). *Introduction to Linear
+  Regression Analysis* (6.ª ed.). Wiley.
+* Chatterjee, S. & Hadi, A. S. (2012). *Regression Analysis by Example* (5.ª ed.).
+  Wiley.
+* James, G., Witten, D., Hastie, T. & Tibshirani, R. (2021). *An Introduction to
+  Statistical Learning* (2.ª ed.). Springer.
+* Fox, J. & Weisberg, S. (2019). *An R Companion to Applied Regression* (3.ª ed.).
+  Sage. [paquete `car`]
+* Hoaglin, D. C. & Welsch, R. E. (1978). The Hat Matrix in Regression and ANOVA.
+  *The American Statistician*, 32(1), 17–22.
+* Ryan, T. A., Joiner, B. L. & Ryan, B. F. (1976). *Minitab Student Handbook*.
+  Duxbury. [fuente original del conjunto `trees`]
+* Seabold, S. & Perktold, J. (2010). statsmodels: Econometric and statistical
+  modeling with Python. *Proceedings of the 9th Python in Science Conference*.
+
+```{r sesion}
+sessionInfo()
+```

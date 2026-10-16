@@ -1,0 +1,164 @@
+---
+title: "Untitled"
+output: html_document
+date: "2026-09-18"
+---
+
+
+
+
+### Introducción
+
+Residuales
+
+- Al ajustar un modelo a un cuerpo de datos dado, nos gustaría asegurarnos de que el ajuste no esté demasiado determinado por una o unas pocas observaciones.
+
+- La teoría de distribución, los intervalos de confianza y las pruebas de hipótesis son válidas y solo tienen sentido si se cumplen los supuestos estándar de la regresión. 
+
+- Presentaremos algunos métodos gráficos e inferenciales para verificar los supuestos del modelo mediante el análisis de los residuales del mismo.
+
+### Supuestos del modelo
+
+- **Supuesto de linealidad**. Se supone que el modelo que relaciona la respuesta $Y$ con los predictores $X_1$, $X_2$, $\cdots$, $X_k$ es lineal en los parámetros de regresión $\beta_0$, $\beta_1$, $\cdots$, $\beta_k$, a saber,
+
+$$
+Y=\beta_0+\beta_1X_i+\cdots+\beta_kX_k+\epsilon, \tag{1}
+$$
+
+lo que implica que la $i$-ésima observación puede escribirse como
+
+$$
+y_i=\beta_0+\beta_1x_{i1}+\cdots+\beta_kx_{ik}+\epsilon_i,\hspace{0.4cm} i=1,2,\cdots,n. \tag{2}
+$$
+Nos referimos a esto como el *supuesto de linealidad*.
+
+- **Supuestos acerca de los errores**. Se supone que los errores $\epsilon_1$, $\epsilon_2$, $\cdots$, $\epsilon_n$ en $(2)$ son variables aleatorias normales independientes e idénticamente distribuidas, cada una con media cero y una varianza común $\sigma^2$. Este también se conoce como el supuesto de *homogeneidad* o de *homocedasticidad*.
+
+- **Supuestos sobre las predictoras**. Las variables predictoras $X_1$, $X_2$, $\cdots$, $X_k$ son no aleatorias e independientes entre ellas. Además, los valores $x_{1j}$, $x_{2j}$, $\cdots$, $x_{nj}$; $j = 1, 2, \cdots, k$, se miden sin error.  
+
+- **Supuestos sobre las observaciones**: Todas las observaciones son igualmente confiables y tienen un papel aproximadamente igual en la determinación de los resultados de la regresión y en la influencia de las conclusiones.
+
+
+### Varios tipos de residuales
+
+Los residuales en los modelos de regresión nos ayuda a:
+
+- Determinar qué tan bien el modelo explica el patrón de los datos,
+- Verificar el cumplimiento de los supuestos del modelo
+- Detectar deficiencias del modelo en el análisis de regresión con el examen de las gráficas de residuales.
+- Las gráficas de residuales señalarán violaciones graves en uno o más de los supuestos estándar cuando existan. De mayor importancia, el análisis de los residuales puede conducir a sugerencias de estructura o señalar información en los datos que podrían perderse o pasarse por alto si el análisis se basa solo en estadísticas resumidas.
+
+Cuando se ajusta el modelo lineal en $(1)$ a un conjunto de datos por mínimos cuadrados, obtenemos los valores estimados,
+
+$$
+\hat{y}_i=\hat{\beta}_0+\hat{\beta}_1x_{i1}+\cdots+\hat{\beta}_kx_{ik}, \hspace{0.4cm} i=1,2,\cdots,n, \tag{3}
+$$
+
+y los **residuales de mínimos cuadrados ordinarios** correspondientes,
+
+$$
+e_i=y_i-\hat{y}_i, \hspace{0.4cm} i=1,2,\cdots,n. \tag{4}
+$$
+
+Los valores estimados en $(3)$ también se pueden escribir en una forma alternativa como
+
+$$
+\hat{y}_i=h_{i1}y_1+h_{i2}y_2+\cdots+h_{in}y_n, \hspace{0.5cm} i=1,2,\cdots,n, \tag{5}
+$$
+
+donde los $h_{ij}$ son cantidades que dependen solo de los valores de las variables predictoras (no involucran la variable de respuesta). La ecuación $(5)$ muestra directamente la relación entre los valores observados y los pronosticados.
+
+En regresión múltiple, los $h_{ij}$ son elementos de una matriz conocida como matriz de proyección o matriz "sombrero" $\mathbf{H}$, donde $\mathbf{H}=\mathbf{X(X'X)^{-1}X'}$. Cuando $i = j$, $h_{ii}$ es el $i$-ésimo elemento diagonal de la matriz de proyección $\mathbf{H}$.
+
+El valor $h_{ii}$ se denomina **valor de leverage  (apalancamiento)** para la $i$-ésima observación porque, como se puede ver en $(5)$, $\hat{y}_i$ es una suma ponderada de todas las observaciones en $Y$ y $h_{ii}$ es el peso (apalancamiento) dado a $y_i$ para determinar el $i$-ésimo valor estimado $\hat{y}_i$ (Hoaglin y Welsch, 1978). Por lo tanto, tenemos $n$ valores de apalancamiento y se denotan por
+
+$$
+h_{11}, h_{22}, \cdots, h_{nn} \tag{6}
+$$
+
+Cuando se cumplen los supuestos establecidos para el modelo, los residuos ordinarios, $e_1$, $e_2$, $\cdots$, $e_n$, definidos en $(4)$, sumarán cero, pero no tendrán la misma varianza porque
+
+$$
+\textit{Var}(e_i)=\sigma^2(1-h_{ii}),
+$$
+
+donde $h_{ii}$ es el $i$-ésimo valor de apalancamiento en $(6)$, que depende de $x_{i1}$, $x_{i2}$, $\cdots$, $x_{ik}$. Para superar el problema de las varianzas desiguales, estandarizamos el $i$-ésimo $e_i$ residual dividiéndolo por su desviación estándar y obtenemos
+
+$$
+z_i=\frac{e_i}{\sigma\sqrt{1-h_{ii}}}. \tag{7}
+$$
+
+Este se llama el $i$-ésimo **residual estandarizado** porque tiene media cero y desviación estándar 1. Los residuales estandarizados dependen de $\sigma$, la desviación estándar desconocida de $\epsilon$. Una estimación insesgada de $\sigma^2$ está dada por
+
+$$
+\hat{\sigma}^2=\frac{\sum e_i^2}{n-p}=\frac{\text{SCE}}{n-p}
+$$
+donde SCE es la suma de cuadrados de los residuales.
+
+Una estimación insesgada alternativa de $\sigma^2$ está dada por:
+
+$$
+\hat{\sigma}_{(i)}^2=\frac{\text{SCE}_{(i)}}{(n-1)-p}
+$$
+
+donde $\text{SCE}_{(i)}$ es la suma de cuadrados residual cuando ajustamos el modelo a las $n - 1$ observaciones obtenidas al omitir la $i$-ésima observación.
+
+Usando $\hat{\sigma}$ como una estimación de $\sigma$ en $(7)$, obtenemos
+
+$$
+r_i=\frac{e_i}{\hat{\sigma}\sqrt{1-h_{ii}}}. \tag{8}
+$$
+mientras que usando $\hat{\sigma}_{(i)}$ como una estimación de $\sigma$, obtenemos
+
+$$
+r_i^{\ast}=\frac{e_i}{\hat{\sigma}_{(i)}\sqrt{1-h_{ii}}}. \tag{9}
+$$
+La forma de residual en $(8)$ se llama residual internamente estudientizado, y el residual en $(9)$ se llama residual externamente estudiado, porque $e_i$ no está involucrado en $\hat{\sigma}_{(i)}$.
+
+
+## 
+```{r}
+data(trees)
+modelo=lm(Volume~Girth +Height, data=trees)
+
+
+cbind(ei=residuals(modelo, type='working'),
+      pi=residuals(modelo, type='pearson'),
+      di=rstandard(modelo),
+      ri=rstudent(modelo))
+```
+
+## Los supuestos en un modelo de regresión 
+
+- Los errores $e_i$  tienen distribución normal.
+-  Los errores  $e_i$ tienen media cero.
+- Los errores  $e_i$  tiene varianza constante.
+- Los errores $e_i$   no están correlacionados.
+
+
+
+## Estudio de los residuos del modelo.
+Para confirmar que un modelo de regresión lineal múltiple por mínimos cuadrados cumple su labor, lo mejor es estudiar los residuos del modelo. En R, los residuos se almacenan dentro del modelo, bajo el nombre de “residuals”, además, R puede generar los gráficos más usados para la evaluar los residuos del modelo:
+
+
+```{r}
+par(mfrow = c(1,2)) # Indicamos que queremos 2 gráficos por pantalla (1 fila y 2 columnas)
+plot(modelo) # Pintamos los graficos de residuos
+
+```
+
+
+- El primer gráfico muestra los residuos para cada predicción. Si hay una distribución lineal de los residuos, entonces podemos pensar que el modelo se ajusta bien. Si se observa cualquier tipo de distribución no lineal ni constante, podemos sospechar que el modelo no se ajusta del todo.
+- El segundo gráfico es de tipo Normal Q-Q. Compara los residuos estandarizados con la distribución teorica Normal. Si los puntos se alejan de la linea normal, indica que los residuos no se ajustan a una distribución Normal.
+
+- El tercer gráfico, Scale-location o también llamado Spread-Location, muestra si los residuos se distribuyen por igual a lo largo de los rangos de predictores. Permite verificar si la varianza es igual (homocedasticidad). Si se ve una línea horizontal con puntos de dispersión iguales (al azar), es una buena señal.
+
+- EL último de los gráficos es el Residuals Vs Leverage. Nos ayuda a encontrar casos influyentes. No todos los valores atípicos influyen en el análisis de regresión lineal. Aunque parezcan valores extremos por salirse de lo habitual, igual no influyen en el modelo. De igual forma, valores que aparentemente confirman el modelo, podrían ser muy influyentes y alterar los resultados si los excluimos del análisis. En este gráfico los patrones no son relevantes. Hay que observar valores periféricos en la esquina superior derecha o en la esquina inferior derecha. Esos lugares son los lugares donde los casos pueden influir en una línea de regresión. Hay que buscar casos fuera de la línea, la distancia de Cook. Los resultados de la regresión se alterarán si excluimos esos casos.
+
+
+```{r}
+plot(x = modelo$fitted.values, y = abs(rstudent(modelo)), ylim=c(0,4), main = "Residuos absolutes studentizados vs valores predichos", pch = 20, col = "grey30")
+abline(h = 3, col = "red") # se pinta la linea límite de 3
+
+```
+
