@@ -1,0 +1,12 @@
+# Dependencias para ejecutar los cuadernillos del repositorio (incluido 05_ANOVA/05_Introduccion_ANOVA_Mejorado.ipynb)
+# Versiones mínimas; el cuadernillo de ANOVA se verificó con Python 3.10 y 3.13 (ver 05_ANOVA/Informe_Cambios_ANOVA.md)
+numpy>=1.23
+pandas>=1.5
+scipy>=1.11          # stats.studentized_range (Games-Howell) y TtestResult.confidence_interval
+statsmodels>=0.14    # anova_lm, anova_oneway (Welch), AnovaRM, pairwise_tukeyhsd, FTestAnovaPower, mixedlm
+matplotlib>=3.6
+seaborn>=0.13        # pointplot con hue y errorbar=("ci", 95)
+scikit-learn>=1.2    # usado por el cuadernillo 04 (selección de variables)
+ipython
+ipykernel
+jupyter

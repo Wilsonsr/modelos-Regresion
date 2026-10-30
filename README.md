@@ -27,6 +27,7 @@ Regresion/
 | 4 | **Selección de variables** | `04_Seleccion_de_Variables/04_Seleccion_de_Variables.ipynb` | `boston_house_prices.csv`, `Cars93.csv` |
 | 4b | Proyecto completo de RLM (EDA → selección → regularización → validación) | `04_Seleccion_de_Variables/Cuadernillo_Regresion_Lineal_Multiple.ipynb` | configurable |
 | 5 | **Introducción a ANOVA** | `05_ANOVA/05_Introduccion_ANOVA.ipynb` | `Cars93.csv` + simulaciones |
+| 5b | **ANOVA, versión mejorada** (8 unidades, Games-Howell, medidas repetidas, taller y solucionario) | `05_ANOVA/05_Introduccion_ANOVA_Mejorado.ipynb` · cambios en `05_ANOVA/Informe_Cambios_ANOVA.md` | `Cars93.csv` + simulaciones |
 | 6 | Complemento: Random Forest | `06_Complementos/Random_Forest_1.ipynb` | — |
 
 ### 04 · Selección de variables (cuadernillo nuevo)
@@ -38,7 +39,7 @@ Por qué seleccionar (sobreajuste, parsimonia), EDA, división entrenamiento/pru
 ## Requisitos (Python)
 
 ```bash
-pip install pandas numpy matplotlib seaborn statsmodels scikit-learn scipy jupyter
+pip install -r requirements.txt
 ```
 
 Abra Jupyter desde la carpeta del repositorio y ejecute cada cuadernillo de arriba hacia abajo. Los cuadernillos buscan los datos en `../datos/`.
